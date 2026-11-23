@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1 (2026-11-24)
+
+### 修复
+
+- 「按 workspace」在真实会话上全落到 `unknown`：`session` 事件不带 `cwd` 时，从 `sessions/<workspace>/<session>/` 目录名兜底，并解码 DSH 的 `~XXXX` 转义。
+
 ## 0.5.0 (2026-11-24)
 
 ### 新增
