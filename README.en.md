@@ -63,6 +63,12 @@ agh-lite audit --format json
 # custom price table
 agh-lite audit --pricing my-prices.json
 
+# reconcile with the real ledger (auto-discovers $DSH_HOME/.dshw-usage.json)
+agh-lite audit --usage /path/to/.dshw-usage.json
+
+# skip reconciliation
+agh-lite audit --no-usage
+
 # redact absolute paths before sharing
 agh-lite audit --redact --out runs/audit.md
 ```
@@ -74,6 +80,7 @@ What the report contains:
 | Overview | total tokens, prompt / output, cache hit rate, tool schema, estimated cost |
 | Top findings | evidence, recommendation, estimated tokens / money saved per issue |
 | By model | token share and estimated cost per model |
+| Reconciliation | actual spend, estimated spend, delta, and real cost by day/model |
 | Session ranking | most expensive sessions with cache hit and duplicates |
 
 ### Pack
@@ -139,6 +146,7 @@ agh-lite journal verify
 | `sessions.py` | Parse DSH sessions (plain and multi-frame zstd), extract usage, tool calls, compaction, retries |
 | `audit.py` | Eight-rule offline audit, Chinese Markdown and JSON |
 | `pricing.py` | Model price table and cost estimation; unknown models are not guessed |
+| `usage.py` | Read DSH's `.dshw-usage.json`, aggregate real spend by day/model |
 | `pack.py` | Exact + near dedupe, budgeted selection |
 | `cache.py` | SQLite content-addressed cache with TTL and hit stats |
 | `budget.py` | Single-window reserve / settle / violations / TTL reclaim / persistence |
@@ -151,7 +159,8 @@ Accounting conventions:
 - cost = `input × input price + cacheRead × cache price + output × output price`, per million tokens;
 - cached prompt tokens are billed at the cache price — the biggest discount in long sessions;
 - `--days` filters by the session's last event time; file mtime is only a coarse prefilter;
-- the same model behind different provider prefixes is normalized: `deepseek/deepseek-v4.1-flash` and `deepseek-v4.1-flash` are one model.
+- the same model behind different provider prefixes is normalized: `deepseek/deepseek-v4.1-flash` and `deepseek-v4.1-flash` are one model;
+- when `.dshw-usage.json` is present, the estimate is reconciled against the real ledger and the delta is listed.
 
 Audit rules:
 
@@ -183,6 +192,9 @@ A full audit over ~180 DSH sessions (13.6 s):
 | Manual / automatic compaction | 351 / 755 |
 | Provider retries | 5309 |
 | Estimated cost | ~$245 (savings ceiling ~$36.55) |
+| Ledger reconciliation | 2041 entries; the estimate is ~60% below actual because relays add a markup |
+
+> Reconciliation immediately exposed the gap: the built-in table uses official list prices, while real routes charge more. Replace it with `--pricing`, otherwise the savings ceiling is understated.
 
 Top three findings:
 
@@ -191,6 +203,15 @@ Top three findings:
 3. **Low prefix cache**: 13 sessions below 40% hit rate; ~28M tokens.
 
 The counter-intuitive conclusion: **tool results are 0.2% of the prompt; the real cost is history re-read every step and the 52K tool schema.**
+
+## Can it actively save tokens?
+
+Not by intercepting DSH requests. It does two things:
+
+- the offline audit shows where the money goes and which rule is worth fixing;
+- the libraries (`cache` / `pack` / `budget`) save money once wired into your own call path: cache hits avoid a repeated payment, over-budget calls are rejected, packing drops duplicate and low-value segments.
+
+To compress or cache **before a request leaves DSH**, you need a plugin on the `agent/request` extension point. agh-lite deliberately does not do that: plugin APIs follow DSH releases, and a personal tool should not become an operations burden. If you want that layer, build a thin plugin and reuse `pack` and `pricing` from here.
 
 ## Relation to AGH
 
@@ -208,7 +229,7 @@ The counter-intuitive conclusion: **tool results are 0.2% of the prompt; the rea
 ## Known limits
 
 - **No request proxying.** DSH has no public pre-request hook; intercepting means patching the kernel or MITM. The audit is offline, the rest are libraries.
-- **Costs are estimates, not invoices.** The price table lives in `pricing.py`; unknown models are left unpriced and listed in `unknown_models`.
+- **Costs are estimates by default.** The price table lives in `pricing.py`; unknown models are left unpriced and listed in `unknown_models`. With `.dshw-usage.json` the audit reconciles against the real ledger, but the two count differently; a delta does not mean the bill is wrong.
 - **The cache matches one exact request.** Inputs must be byte-identical after normalization; no semantic matching. Do not cache side-effecting tool chains.
 - **The hash chain catches tampering with one entry**, not a full rewrite by someone with write access.
 - **The budget keeps one window.** Daily/monthly resets are the caller's job; no distributed exactly-once.
@@ -230,6 +251,7 @@ src/agh_lite/
   journal.py    hash-chain log
   sessions.py   DSH session parsing (multi-frame zstd)
   pricing.py    model price table and cost estimation
+  usage.py      reconcile against DSH's real usage ledger
   audit.py      offline audit rules and report
   cli.py        command-line entry
 ```

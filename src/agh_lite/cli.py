@@ -18,6 +18,7 @@ from .budget import BudgetExceeded
 from .cache import ResponseCache
 from .journal import HashChainJournal, JournalCorrupt
 from .pack import PackBudgetExceeded, Segment, pack
+from .pricing import format_usd
 from .sessions import SessionReadError, load_session
 from .tokens import estimate_text_tokens, format_tokens
 
@@ -43,6 +44,7 @@ def _cmd_audit(args: argparse.Namespace) -> int:
             max_bytes=args.max_bytes,
             workspace=args.workspace,
             pricing=args.pricing,
+            usage=False if args.no_usage else args.usage,
         )
     except (FileNotFoundError, SessionReadError, ValueError, json.JSONDecodeError) as exc:
         print(f"审计失败：{exc}", file=sys.stderr)
@@ -146,6 +148,10 @@ def _cmd_cache(args: argparse.Namespace) -> int:
             f"累计节省：prompt {format_tokens(stats.prompt_tokens_saved)} / "
             f"completion {format_tokens(stats.completion_tokens_saved)} tokens"
         )
+        if stats.saved_usd is not None:
+            print(f"折合费用：约 {format_usd(stats.saved_usd)}")
+        if stats.unpriced_models:
+            print(f"未定价模型：{', '.join(stats.unpriced_models)}")
         print(f"体积：{stats.db_bytes / 1024:.1f} KiB")
         return 0
     if args.cache_action == "purge":
@@ -220,6 +226,8 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--format", choices=["md", "json"], default="md")
     audit.add_argument("--redact", action="store_true", help="把报告里的本机绝对路径替换掉，便于分享")
     audit.add_argument("--pricing", help="自定义价格表 JSON（覆盖内置价格）")
+    audit.add_argument("--usage", help="DSH 用量账本路径（默认自动找 $DSH_HOME/.dshw-usage.json）")
+    audit.add_argument("--no-usage", action="store_true", help="跳过真实账单对账")
     audit.add_argument("--out", help="写入文件而不是打印")
     audit.set_defaults(func=_cmd_audit)
 

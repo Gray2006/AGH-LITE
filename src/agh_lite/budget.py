@@ -23,10 +23,22 @@ from pathlib import Path
 class BudgetExceeded(Exception):
     """可用额度不足以覆盖这次预留。"""
 
-    def __init__(self, needed_tokens: int, available_tokens: int) -> None:
-        super().__init__(f"预算不足：需要 {needed_tokens} tokens，可用 {available_tokens}")
-        self.needed_tokens = needed_tokens
-        self.available_tokens = available_tokens
+    def __init__(
+        self,
+        needed: float,
+        available: float,
+        *,
+        unit: str = "tokens",
+    ) -> None:
+        self.needed = needed
+        self.available = available
+        self.unit = unit
+        if unit == "tokens":
+            # 兼容旧属性名
+            self.needed_tokens = int(needed)
+            self.available_tokens = int(available)
+        suffix = "" if unit == "tokens" else " usd"
+        super().__init__(f"预算不足：需要 {needed:,}{suffix}，可用 {available:,}{suffix}")
 
 
 @dataclass
@@ -148,7 +160,11 @@ class TokenBudget:
         if self.limit_usd is not None:
             available_usd = self.limit_usd - self._committed_usd - self._outstanding_usd()
             if reserved_usd > available_usd:
-                raise BudgetExceeded(max_tokens, available)  # 美元不足也走同一异常
+                raise BudgetExceeded(
+                    round(reserved_usd, 6),
+                    round(max(0.0, available_usd), 6),
+                    unit="usd",
+                )
 
         lease = Lease(
             lease_id=f"lease-{uuid.uuid4().hex[:10]}",

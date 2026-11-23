@@ -16,9 +16,11 @@ import json
 import sqlite3
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from .pricing import ModelPrice, lookup_price
 
 SCHEMA_VERSION = 1
 
@@ -60,6 +62,8 @@ class CacheStats:
     db_bytes: int
     oldest_at: int | None
     newest_at: int | None
+    saved_usd: float | None = None
+    unpriced_models: list[str] = field(default_factory=list)
 
 
 class ResponseCache:
@@ -198,7 +202,7 @@ class ResponseCache:
             )
         return cursor.rowcount > 0
 
-    def stats(self) -> CacheStats:
+    def stats(self, prices: Mapping[str, ModelPrice] | None = None) -> CacheStats:
         row = self._db.execute(
             "SELECT COUNT(*) AS n, COALESCE(SUM(hits), 0) AS hits,"
             " COALESCE(SUM(hits * prompt_tokens), 0) AS psaved,"
@@ -206,6 +210,26 @@ class ResponseCache:
             " MIN(created_at) AS oldest, MAX(created_at) AS newest"
             " FROM responses"
         ).fetchone()
+        saved_usd: float | None = None
+        unpriced: list[str] = []
+        by_model = self._db.execute(
+            "SELECT model, COALESCE(SUM(hits * prompt_tokens), 0) AS ps,"
+            " COALESCE(SUM(hits * completion_tokens), 0) AS cs"
+            " FROM responses GROUP BY model"
+        ).fetchall()
+        total = 0.0
+        priced = False
+        for item in by_model:
+            price = lookup_price(str(item["model"]), prices)
+            if price is None:
+                unpriced.append(str(item["model"]))
+                continue
+            total += (
+                int(item["ps"]) * price.input_per_m + int(item["cs"]) * price.output_per_m
+            ) / 1_000_000
+            priced = True
+        if priced:
+            saved_usd = total
         try:
             db_bytes = self.path.stat().st_size
         except OSError:
@@ -218,6 +242,8 @@ class ResponseCache:
             db_bytes=db_bytes,
             oldest_at=int(row["oldest"]) if row["oldest"] is not None else None,
             newest_at=int(row["newest"]) if row["newest"] is not None else None,
+            saved_usd=saved_usd,
+            unpriced_models=sorted(unpriced),
         )
 
     def purge(self, older_than_seconds: int | None = None) -> int:

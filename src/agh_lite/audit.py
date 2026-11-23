@@ -25,6 +25,7 @@ from .sessions import (
     resolve_dsh_home,
 )
 from .tokens import format_tokens
+from .usage import UsageSummary, find_usage_file, load_usage, summarize
 
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 SEVERITY_LABEL = {"high": "高", "medium": "中", "low": "低"}
@@ -193,6 +194,13 @@ class AuditReport:
     sessions: list[SessionSummary]
     skipped: list[str] = field(default_factory=list)
     days: int | None = None
+    usage: UsageSummary | None = None
+
+    @property
+    def estimate_delta_usd(self) -> float | None:
+        if self.usage is None or not self.totals.has_cost:
+            return None
+        return self.totals.cost_usd - self.usage.total_cost
 
     @property
     def potential_savings(self) -> int:
@@ -219,6 +227,10 @@ class AuditReport:
             "potential_savings": self.potential_savings,
             "potential_savings_usd": (
                 None if self.potential_savings_usd is None else round(self.potential_savings_usd, 4)
+            ),
+            "usage": None if self.usage is None else self.usage.to_dict(),
+            "estimate_delta_usd": (
+                None if self.estimate_delta_usd is None else round(self.estimate_delta_usd, 4)
             ),
             "findings": [finding.to_dict() for finding in self.findings],
             "top_sessions": [summary.to_dict() for summary in self.top_sessions(top)],
@@ -319,6 +331,42 @@ class AuditReport:
                 )
             lines.append("")
 
+        if self.usage is not None and self.usage.events:
+            delta = self.estimate_delta_usd
+            lines += [
+                "## 与真实账单对账",
+                "",
+                f"- 实际花费：{format_usd(self.usage.total_cost)}（{self.usage.events} 笔）",
+                f"- 估算花费：{format_usd(totals.cost_usd) if totals.has_cost else '未配置价格'}",
+                f"- 差额：{format_usd(delta) if delta is not None else '无法比较'}",
+                "",
+            ]
+            if delta is not None and abs(delta) > self.usage.total_cost * 0.3:
+                lines += [
+                    "> 估算与实际差超过 30%：先检查价格表是否覆盖了实际通道。"
+                    "中转站常在官方价上加价，用 `--pricing` 换成自己的单价再比。",
+                    "",
+                ]
+            lines += [
+                "| 日期 | 实际费用 |",
+                "|---|---|",
+            ]
+            for day, cost in sorted(self.usage.by_day.items(), reverse=True)[:14]:
+                lines.append(f"| {day} | {format_usd(cost)} |")
+            lines.append("")
+            if self.usage.by_model:
+                lines += [
+                    "| 模型 | 实际费用 | 实际 tokens |",
+                    "|---|---|---|",
+                ]
+                for model, row in sorted(
+                    self.usage.by_model.items(), key=lambda item: item[1]["cost"], reverse=True
+                ):
+                    lines.append(
+                        f"| {model} | {format_usd(row['cost'])} | {format_tokens(int(row['tokens']))} |"
+                    )
+                lines.append("")
+
         sessions = self.top_sessions(top)
         if sessions:
             lines += [
@@ -343,6 +391,7 @@ class AuditReport:
             "- 没有 usage 的旧会话不计入 token 总量，但工具调用仍会参与重复/超长分析。",
             "- 「估算可省」是上限估计，各项互相重叠，不按单项相加，总量按 25% 封顶。",
             "- 费用按内置价格表估算，未命中的模型不计价；用 `--pricing` 传自己的价格表可以覆盖。",
+            "- 有 `.dshw-usage.json` 时报告会附真实账单对账；差额来自估算口径与未定价模型，不代表账错了。",
             "- 本工具只读，不上传任何会话内容；`skipped` 里是读取失败或超限跳过的文件。",
         ]
         if self.skipped:
@@ -454,6 +503,7 @@ def audit_records(
     days: int | None = None,
     skipped: list[str] | None = None,
     prices: dict[str, ModelPrice] | None = None,
+    usage: UsageSummary | None = None,
 ) -> AuditReport:
     prices = prices or dict(DEFAULT_PRICES)
     totals = _aggregate_totals(records, prices)
@@ -725,6 +775,7 @@ def audit_records(
         sessions=sorted(summaries, key=lambda item: item.total_tokens, reverse=True),
         skipped=skipped or [],
         days=days,
+        usage=usage,
     )
 
 
@@ -736,6 +787,7 @@ def audit_home(
     max_bytes: int | None = 24 * 1024 * 1024,
     workspace: str | None = None,
     pricing: str | Path | None = None,
+    usage: str | Path | bool | None = None,
 ) -> AuditReport:
     resolved = resolve_dsh_home(home)
     prices = load_prices(pricing) if pricing else dict(DEFAULT_PRICES)
@@ -745,7 +797,13 @@ def audit_home(
         cutoff_ms = int((time.time() - days * 86400) * 1000)
         # 文件 mtime 只做粗筛，多留 7 天余量；精确口径用会话内最后事件时间
         since = time.time() - (days + 7) * 86400
-    files = find_session_files(resolved, since=since, max_bytes=max_bytes, limit=limit)
+    # 有 --days 时先多读再精筛，limit 必须作用在筛选后的结果上
+    files = find_session_files(
+        resolved,
+        since=since,
+        max_bytes=max_bytes,
+        limit=None if cutoff_ms is not None else limit,
+    )
     records: list[SessionRecord] = []
     skipped: list[str] = []
     for path in files:
@@ -761,10 +819,25 @@ def audit_home(
             if ended < cutoff_ms:
                 continue
         records.append(record)
+    if cutoff_ms is not None:
+        records.sort(key=lambda item: item.ended_at, reverse=True)
+        if limit is not None:
+            records = records[:limit]
+
+    usage_summary: UsageSummary | None = None
+    if usage is not False:
+        usage_path = Path(usage).expanduser() if isinstance(usage, str | Path) else find_usage_file(resolved)
+        if usage_path is not None and Path(usage_path).is_file():
+            try:
+                usage_summary = summarize(load_usage(usage_path), since_ms=cutoff_ms)
+            except Exception as exc:  # 账本坏了不该拖垮审计
+                skipped.append(f"{usage_path}: {exc}")
+
     return audit_records(
         records,
         home=resolved,
         days=days,
         skipped=skipped,
         prices=prices,
+        usage=usage_summary,
     )

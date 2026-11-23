@@ -167,3 +167,41 @@ def test_days_uses_session_event_time(tmp_path, write_session) -> None:
     report = audit_home(tmp_path, days=1)
     assert report.totals.sessions == 1
     assert report.sessions[0].session_id == "sess-1"
+
+
+def test_usage_reconciliation(tmp_path, write_session) -> None:
+    write_session()
+    now_ms = int(__import__("time").time() * 1000)
+    usage = {
+        "events": [
+            {"ts": now_ms - 1_000, "day": "2026-11-24", "model": "deepseek-v4", "cost": 0.01, "tokens": 6_150}
+        ]
+    }
+    (tmp_path / ".dshw-usage.json").write_text(json.dumps(usage), encoding="utf-8")
+    report = audit_home(tmp_path)
+    assert report.usage is not None
+    assert report.usage.events == 1
+    assert report.usage.total_cost == pytest.approx(0.01)
+    assert report.estimate_delta_usd is not None
+    text = report.render_markdown()
+    assert "与真实账单对账" in text
+    assert "实际花费" in text
+
+
+def test_usage_can_be_disabled(tmp_path, write_session) -> None:
+    write_session()
+    (tmp_path / ".dshw-usage.json").write_text('{"events": []}', encoding="utf-8")
+    assert audit_home(tmp_path, usage=False).usage is None
+
+
+def test_days_limit_applies_after_time_filter(tmp_path, write_session) -> None:
+    now_ms = int(__import__("time").time() * 1000)
+    for index, offset in enumerate((3_600_000, 7_200_000)):
+        events = [dict(event) for event in build_events()]
+        for event in events:
+            event["time"] = now_ms - offset
+        write_session(events, session_id=f"recent-{index}")
+    write_session(session_id="old")
+    report = audit_home(tmp_path, days=1, limit=1)
+    assert report.totals.sessions == 1
+    assert "recent-0" in report.sessions[0].path

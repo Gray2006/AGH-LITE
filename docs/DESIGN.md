@@ -102,6 +102,12 @@ zstd 读取：本机 zstandard 0.25 的 `stream_reader` 迭代会抛 `io.Unsuppo
 
 报告默认中文 Markdown；`--format json` 给脚本。
 
+### `usage.py`
+
+读 `$DSH_HOME/.dshw-usage.json` 的 `events`：每条带 `ts / day / model / cost / tokens`。
+只做聚合（按天、按模型、总量），不做二次换算；坏事件跳过，字段缺失不猜。
+审计把估算费用和它对账，差额单独列出——两边计费口径不同，差额不等于账错。
+
 ## 为什么不做代理
 
 最省 token 的做法是「请求前砍上下文、请求后记缓存」，但那需要接管 DSH 的模型调用。
@@ -117,6 +123,6 @@ DSH 发行版没有公开的请求钩子，硬做只能改内核或 MITM，都�
 
 ## 后续可做
 
-- 读 `.dshw-usage.json` 对账（需要用户明确同意，涉及钱）；
 - 前缀稳定性检测：比较相邻 `request/header` 的哈希，判断工具集是否频繁变化；
-- 按 workspace 维度拆分报告（模型维度已做）。
+- 按 workspace 维度拆分报告（模型维度已做）；
+- 插件形态的请求前裁剪（复用 `pack` / `pricing`，单独仓库，不塞进本库）。

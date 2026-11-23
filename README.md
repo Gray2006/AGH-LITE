@@ -63,6 +63,12 @@ agh-lite audit --format json
 # 用自己的价格表估算费用
 agh-lite audit --pricing my-prices.json
 
+# 真实账单对账（默认自动找 $DSH_HOME/.dshw-usage.json）
+agh-lite audit --usage /path/to/.dshw-usage.json
+
+# 不想对账
+agh-lite audit --no-usage
+
 # 分享前把本机绝对路径脱敏
 agh-lite audit --redact --out runs/audit.md
 ```
@@ -74,6 +80,7 @@ agh-lite audit --redact --out runs/audit.md
 | 总览 | 总 tokens、prompt / output、缓存命中、工具 schema、估算费用 |
 | 最该先动的几件事 | 每条问题给证据、做法、估算省多少 tokens / 多少钱 |
 | 按模型 | 各模型的 tokens 占比与估算费用 |
+| 与真实账单对账 | 实际花费、估算花费、差额，以及按天/按模型的真实费用 |
 | 会话排行 | 最贵的会话及其缓存命中、重复量 |
 
 ### 打包
@@ -139,6 +146,7 @@ agh-lite journal verify
 | `sessions.py` | 解析 DSH 会话（明文与多帧 zstd），抽 usage、工具调用、压缩、重试 |
 | `audit.py` | 八条规则的离线审计，中文报告与 JSON |
 | `pricing.py` | 模型价格表与费用估算，未知模型不猜价 |
+| `usage.py` | 读 DSH 的 `.dshw-usage.json`，按天/模型聚合真实花费 |
 | `pack.py` | 精确 + 近似去重，预算内选择 |
 | `cache.py` | SQLite 内容寻址缓存，TTL 与命中统计 |
 | `budget.py` | 单窗口预授权 / 结算 / 违规 / TTL 回收 / 落盘 |
@@ -151,7 +159,8 @@ agh-lite journal verify
 - 费用 = `input × 输入价 + cacheRead × 缓存价 + output × 输出价`，单价按百万 tokens；
 - 缓存命中的 prompt 按缓存价计，这是长会话里最大的一笔折扣；
 - `--days` 按会话内最后事件时间筛选，文件 mtime 只做粗筛；
-- 同一模型跨 provider 前缀归一，`deepseek/deepseek-v4.1-flash` 与 `deepseek-v4.1-flash` 视为同一个。
+- 同一模型跨 provider 前缀归一，`deepseek/deepseek-v4.1-flash` 与 `deepseek-v4.1-flash` 视为同一个；
+- 有 `.dshw-usage.json` 时，估算费用会和真实账本对账，差额单独列出。
 
 审计规则：
 
@@ -183,6 +192,9 @@ agh-lite journal verify
 | 手动 compress / 自动压缩 | 351 / 755 |
 | 供应商重试 | 5309 次 |
 | 估算费用 | 约 $245（可省约 $36.55） |
+| 真实账单对账 | 2041 笔；估算比实际低约 60%，默认价未含中转加价 |
+
+> 对账一跑就暴露出问题：内置价格表是官方参考价，实际通道有加价，`--pricing` 得换成自己的单价，否则「可省」会被低估。
 
 审计给出的前三件事：
 
@@ -191,6 +203,15 @@ agh-lite journal verify
 3. **部分会话前缀缓存低**：13 个会话命中率低于 40%，估算 28M。
 
 结论和直觉相反：**工具结果只占 prompt 的 0.2%，真正贵的是每步都重读的历史和 52K 的工具定义。**
+
+## 能主动省 token 吗
+
+现在**不能替你拦 DSH 的请求**。它做两件事：
+
+- 审计离线告诉你钱花在哪、哪条规则最值得改；
+- 库（`cache` / `pack` / `budget`）接进你自己的调用脚本后，命中缓存不重复付费、超预算直接拒绝、打包时砍掉重复和低价值片段。
+
+想让「请求出门前自动压缩、自动缓存」，需要在 DSH 的 `agent/request` 扩展点上挂插件。agh-lite 刻意不做：插件 API 跟 DSH 版本走，个人版不想变成运维负担。真要做，更适合单独一个薄插件，复用这里的 `pack` 与 `pricing`。
 
 ## 与 AGH 的关系
 
@@ -208,7 +229,7 @@ agh-lite journal verify
 ## 已知边界
 
 - **不代理请求**。DSH 发行版没有公开的请求钩子，硬接只能改内核或 MITM；审计离线做，其余能力做成库。
-- **费用是估算，不是账单**。价格表在 `pricing.py`，未命中的模型不计价，会列进 `unknown_models`。
+- **费用默认是估算**。价格表在 `pricing.py`，未命中的模型不计价，会列进 `unknown_models`；有 `.dshw-usage.json` 时可以拉真实账本对账，但两边口径不同，差额不等于账错。
 - **缓存只认同一个请求**。输入逐字节规范化后一致才命中，不做语义匹配；有副作用的工具链不该缓存。
 - **哈希链只防「改一条看不出来」**，防不了有写权限的人重写整条链。
 - **预算只维护一个窗口**，日/月边界由调用方重置；不承诺分布式 exactly-once。
@@ -230,6 +251,7 @@ src/agh_lite/
   journal.py    哈希链日志
   sessions.py   DSH 会话解析（含 zstd 多帧）
   pricing.py    模型价格表与费用估算
+  usage.py      DSH 真实用量账本对账
   audit.py      离线审计规则与报告
   cli.py        命令行入口
 ```

@@ -109,8 +109,11 @@ def test_reconcile_keeps_live_leases() -> None:
 
 def test_usd_limit_is_enforced() -> None:
     budget = make_budget(limit_usd=0.01)
-    with pytest.raises(BudgetExceeded):
+    with pytest.raises(BudgetExceeded) as exc:
         budget.reserve(owner="main", max_tokens=10, reserved_usd=0.02)
+    assert exc.value.unit == "usd"
+    assert "usd" in str(exc.value)
+    assert exc.value.needed == pytest.approx(0.02)
 
 
 def test_unknown_lease_settle_raises() -> None:

@@ -33,7 +33,7 @@ def test_get_missing_returns_none(cache: ResponseCache) -> None:
 
 def test_stats_count_hits_and_saved_tokens(cache: ResponseCache) -> None:
     key = cache.make_key("m", [{"role": "user", "content": "x"}])
-    cache.put(key, "ok", prompt_tokens=100, completion_tokens=20)
+    cache.put(key, "ok", model="m", prompt_tokens=100, completion_tokens=20)
     cache.get(key)
     cache.get(key)
     stats = cache.stats()
@@ -42,6 +42,17 @@ def test_stats_count_hits_and_saved_tokens(cache: ResponseCache) -> None:
     assert stats.prompt_tokens_saved == 200
     assert stats.completion_tokens_saved == 40
     assert stats.db_bytes > 0
+    assert stats.saved_usd is None  # 模型 "m" 没有价格
+    assert stats.unpriced_models == ["m"]
+
+
+def test_stats_saved_usd_with_priced_model(cache: ResponseCache) -> None:
+    key = cache.make_key("deepseek-v4", [{"role": "user", "content": "x"}])
+    cache.put(key, "ok", model="deepseek-v4", prompt_tokens=1_000_000, completion_tokens=1_000_000)
+    cache.get(key)
+    stats = cache.stats()
+    # deepseek-v4：输入 0.55、输出 1.70，各 1M
+    assert stats.saved_usd == pytest.approx(2.25)
 
 
 def test_key_ignores_volatile_fields(cache: ResponseCache) -> None:
