@@ -233,6 +233,15 @@ agh-lite proxy --upstream https://api.deepseek.com --max-tool-chars 2000 --keep-
 
 边界：代理只监听本机、不记录请求正文、不落盘 Authorization；裁剪会改变模型看到的历史，重要会话可以先 `--no-trim` 只开缓存。健康检查：`curl http://127.0.0.1:8787/agh-lite/health`。
 
+每次请求的节省会写进 `~/.dsh/agh-lite-proxy.jsonl`，随时汇总：
+
+```bash
+agh-lite proxy --stats
+agh-lite proxy --stats --json
+```
+
+输出裁剪字符数、缓存省下的 tokens、按价格表折合的费用。
+
 不想走代理时，库模式仍然可用：`cache` / `pack` / `budget` 接进自己的调用脚本，命中缓存不重复付费、超预算直接拒绝。
 
 ## 与 AGH 的关系

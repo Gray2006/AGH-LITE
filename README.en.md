@@ -233,6 +233,15 @@ Then add an OpenAI-compatible provider in DSH with `baseUrl` = `http://127.0.0.1
 
 Limits: local-only binding, no request bodies logged, no Authorization persisted; trimming changes the history the model sees, so for important sessions start with `--no-trim`. Health check: `curl http://127.0.0.1:8787/agh-lite/health`.
 
+Every request's savings are appended to `~/.dsh/agh-lite-proxy.jsonl`; summarize anytime:
+
+```bash
+agh-lite proxy --stats
+agh-lite proxy --stats --json
+```
+
+It reports trimmed characters, tokens saved by the cache, and the money equivalent from the price table.
+
 Without the proxy, the libraries still work: wire `cache` / `pack` / `budget` into your own call path.
 
 ## Relation to AGH

@@ -210,6 +210,26 @@ def _cmd_tokens(args: argparse.Namespace) -> int:
 
 
 def _cmd_proxy(args: argparse.Namespace) -> int:
+    if args.stats:
+        from .proxy import load_ledger, summarize_ledger
+
+        ledger = args.ledger or str(Path.home() / ".dsh" / "agh-lite-proxy.jsonl")
+        stats = summarize_ledger(load_ledger(ledger))
+        if args.json:
+            print(json.dumps(stats.to_dict(), ensure_ascii=False, indent=2))
+            return 0
+        print(f"账本：{ledger}")
+        print(f"请求：{stats.requests}，缓存命中：{stats.cache_hits}，裁剪过：{stats.trimmed_requests}")
+        print(f"裁剪字符：{stats.chars_removed:,}（约 {format_tokens(stats.tokens_saved_trim)} tokens）")
+        print(f"缓存省下：{format_tokens(stats.tokens_saved_cache)} tokens")
+        if stats.cost_saved_usd is not None:
+            print(f"折合费用：约 {format_usd(stats.cost_saved_usd)}")
+        if stats.unpriced_models:
+            print(f"未定价模型：{', '.join(stats.unpriced_models)}")
+        return 0
+    if not args.upstream:
+        print("需要 --upstream，或用 --stats 查看账本", file=sys.stderr)
+        return 2
     try:
         config = ProxyConfig(
             upstream=args.upstream,
@@ -220,6 +240,7 @@ def _cmd_proxy(args: argparse.Namespace) -> int:
             keep_recent=args.keep_recent,
             cache=not args.no_cache,
             cache_path=args.cache_path,
+            ledger_path=args.ledger,
         )
     except ValueError as exc:
         print(f"参数不对：{exc}", file=sys.stderr)
@@ -280,14 +301,17 @@ def build_parser() -> argparse.ArgumentParser:
     tokens.set_defaults(func=_cmd_tokens)
 
     proxy = sub.add_parser("proxy", help="本地 OpenAI 兼容代理：自动裁剪旧工具结果 + 缓存")
-    proxy.add_argument("--upstream", required=True, help="上游地址，如 https://api.deepseek.com")
+    proxy.add_argument("--upstream", help="上游地址，如 https://api.deepseek.com")
     proxy.add_argument("--host", default="127.0.0.1", help="监听地址（默认只本机）")
     proxy.add_argument("--port", type=int, default=8787)
     proxy.add_argument("--max-tool-chars", type=int, default=4_000, help="单条旧 tool 结果保留的字符数")
     proxy.add_argument("--keep-recent", type=int, default=8, help="最近 N 条消息不动")
     proxy.add_argument("--cache-path", help="缓存文件（默认 ~/.dsh/agh-lite-proxy-cache.sqlite）")
+    proxy.add_argument("--ledger", help="节省账本（默认 ~/.dsh/agh-lite-proxy.jsonl）")
     proxy.add_argument("--no-trim", action="store_true", help="只缓存，不裁剪")
     proxy.add_argument("--no-cache", action="store_true", help="只裁剪，不缓存")
+    proxy.add_argument("--stats", action="store_true", help="不启动服务，只汇总账本里的节省量")
+    proxy.add_argument("--json", action="store_true", help="配合 --stats 输出 JSON")
     proxy.set_defaults(func=_cmd_proxy)
 
     return parser

@@ -21,6 +21,7 @@ import hashlib
 import http.client
 import json
 import threading
+import time
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -53,6 +54,8 @@ class ProxyConfig:
     cache: bool = True
     cache_path: str | Path | None = None
     cache_ttl_seconds: int = 7 * 24 * 3600
+    ledger: bool = True
+    ledger_path: str | Path | None = None
     timeout: float = 300.0
 
     def __post_init__(self) -> None:
@@ -69,6 +72,101 @@ class TrimStats:
     messages: int = 0
     trimmed: int = 0
     chars_removed: int = 0
+
+
+@dataclass
+class ProxyLedgerStats:
+    requests: int = 0
+    cache_hits: int = 0
+    trimmed_requests: int = 0
+    chars_removed: int = 0
+    tokens_saved_cache: int = 0
+    tokens_saved_trim: int = 0
+    cost_saved_usd: float | None = None
+    unpriced_models: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "requests": self.requests,
+            "cache_hits": self.cache_hits,
+            "trimmed_requests": self.trimmed_requests,
+            "chars_removed": self.chars_removed,
+            "tokens_saved_cache": self.tokens_saved_cache,
+            "tokens_saved_trim": self.tokens_saved_trim,
+            "cost_saved_usd": None if self.cost_saved_usd is None else round(self.cost_saved_usd, 4),
+            "unpriced_models": self.unpriced_models,
+        }
+
+
+def _usage_tokens(payload: Any) -> tuple[int, int]:
+    if not isinstance(payload, dict):
+        return 0, 0
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        return 0, 0
+    prompt = usage.get("prompt_tokens", usage.get("input_tokens", 0))
+    completion = usage.get("completion_tokens", usage.get("output_tokens", 0))
+    return (
+        int(prompt) if isinstance(prompt, (int, float)) else 0,
+        int(completion) if isinstance(completion, (int, float)) else 0,
+    )
+
+
+def load_ledger(path: str | Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    try:
+        lines = Path(path).expanduser().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return records
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict):
+            records.append(item)
+    return records
+
+
+def summarize_ledger(
+    records: list[dict[str, Any]],
+    prices: dict[str, Any] | None = None,
+) -> ProxyLedgerStats:
+    from .pricing import lookup_price
+
+    stats = ProxyLedgerStats()
+    cost = 0.0
+    priced = False
+    unpriced: set[str] = set()
+    for item in records:
+        stats.requests += 1
+        trimmed_chars = int(item.get("trimmed_chars", 0) or 0)
+        if trimmed_chars:
+            stats.trimmed_requests += 1
+            stats.chars_removed += trimmed_chars
+        trim_tokens = int(item.get("trimmed_tokens", 0) or 0)
+        stats.tokens_saved_trim += trim_tokens
+        model = str(item.get("model") or "")
+        price = lookup_price(model, prices) if model else None
+        if item.get("cache_hit"):
+            stats.cache_hits += 1
+            prompt = int(item.get("prompt_tokens", 0) or 0)
+            completion = int(item.get("completion_tokens", 0) or 0)
+            stats.tokens_saved_cache += prompt + completion
+            if price is not None:
+                cost += (prompt * price.input_per_m + completion * price.output_per_m) / 1_000_000
+                priced = True
+            elif model:
+                unpriced.add(model)
+        elif trim_tokens:
+            if price is not None:
+                cost += trim_tokens * price.input_per_m / 1_000_000
+                priced = True
+            elif model:
+                unpriced.add(model)
+    stats.cost_saved_usd = cost if priced else None
+    stats.unpriced_models = sorted(unpriced)
+    return stats
 
 
 @dataclass
@@ -174,6 +272,13 @@ def _rewrite_body(body: bytes, config: ProxyConfig) -> tuple[bytes, TrimStats]:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), stats
 
 
+def _parse_json(data: bytes) -> Any:
+    try:
+        return json.loads(data)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+
+
 class _ProxyServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -183,7 +288,20 @@ class _ProxyServer(ThreadingHTTPServer):
         self.cache = cache
         self.stats = ProxyStats()
         self._cache_lock = threading.Lock()
+        self._ledger_lock = threading.Lock()
         super().__init__((config.host, config.port), _Handler)
+
+    def record_ledger(self, record: dict[str, Any]) -> None:
+        if not self.config.ledger:
+            return
+        path = self.config.ledger_path or (Path.home() / ".dsh" / "agh-lite-proxy.jsonl")
+        try:
+            with self._ledger_lock:
+                Path(path).expanduser().parent.mkdir(parents=True, exist_ok=True)
+                with Path(path).expanduser().open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -217,24 +335,44 @@ class _Handler(BaseHTTPRequestHandler):
         stats = TrimStats()
         if config.trim:
             body, stats = _rewrite_body(body, config)
+        payload = _parse_json(body)
+        model = str(payload.get("model") or "") if isinstance(payload, dict) else ""
+        stream = bool(isinstance(payload, dict) and payload.get("stream"))
         key = hashlib.sha256(body).hexdigest()
         cache = self.server.cache
-        if config.cache and cache is not None and not self._is_stream(body):
+        if config.cache and cache is not None and not stream:
             with self.server._cache_lock:
                 hit = cache.get(key)
             if hit is not None:
                 self.server.stats.record(cache_hit=True, trimmed=bool(stats.trimmed), removed=stats.chars_removed)
+                prompt, completion = _usage_tokens(hit.response)
+                self.server.record_ledger(
+                    {
+                        "ts": int(time.time() * 1000),
+                        "model": model,
+                        "stream": False,
+                        "cache_hit": True,
+                        "trimmed_chars": stats.chars_removed,
+                        "trimmed_tokens": round(stats.chars_removed / 3.6),
+                        "prompt_tokens": prompt,
+                        "completion_tokens": completion,
+                    }
+                )
                 self._send_json(200, hit.response)
                 return
         self.server.stats.record(trimmed=bool(stats.trimmed), removed=stats.chars_removed)
-        self._relay("POST", body, cache_key=key if config.cache and not self._is_stream(body) else None)
+        self._relay(
+            "POST",
+            body,
+            cache_key=key if config.cache and not stream else None,
+            model=model,
+            stream=stream,
+            trim=stats,
+        )
 
     # ------------------------------------------------------------ 内部
     def _is_stream(self, body: bytes) -> bool:
-        try:
-            payload = json.loads(body)
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            return False
+        payload = _parse_json(body)
         return bool(isinstance(payload, dict) and payload.get("stream"))
 
     def _send_json(self, status: int, payload: Any) -> None:
@@ -245,7 +383,17 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _relay(self, method: str, body: bytes, cache_key: str | None = None) -> None:
+    def _relay(
+        self,
+        method: str,
+        body: bytes,
+        cache_key: str | None = None,
+        *,
+        model: str = "",
+        stream: bool = False,
+        trim: TrimStats | None = None,
+    ) -> None:
+        trim = trim or TrimStats()
         config = self.server.config
         parts = urlsplit(config.upstream)
         path = self.path if self.path.startswith("/") else f"/{self.path}"
@@ -302,16 +450,25 @@ class _Handler(BaseHTTPRequestHandler):
         data = response.read()
         response.close()
         connection.close()
-        if cache_key is not None and response_status == 200:
-            try:
-                payload = json.loads(data)
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                payload = None
-            if payload is not None:
-                cache = self.server.cache
-                if cache is not None:
-                    with self.server._cache_lock:
-                        cache.put(cache_key, payload)
+        payload = _parse_json(data)
+        if cache_key is not None and response_status == 200 and payload is not None:
+            cache = self.server.cache
+            if cache is not None:
+                with self.server._cache_lock:
+                    cache.put(cache_key, payload)
+        prompt, completion = _usage_tokens(payload)
+        self.server.record_ledger(
+            {
+                "ts": int(time.time() * 1000),
+                "model": model,
+                "stream": stream,
+                "cache_hit": False,
+                "trimmed_chars": trim.chars_removed,
+                "trimmed_tokens": round(trim.chars_removed / 3.6),
+                "prompt_tokens": prompt,
+                "completion_tokens": completion,
+            }
+        )
         self.send_response(response_status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))

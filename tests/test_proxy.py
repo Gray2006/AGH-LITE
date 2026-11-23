@@ -8,7 +8,7 @@ from typing import ClassVar
 
 import pytest
 
-from agh_lite.proxy import ProxyConfig, build_server, trim_messages
+from agh_lite.proxy import ProxyConfig, build_server, load_ledger, summarize_ledger, trim_messages
 
 
 def test_trim_old_tool_result_only() -> None:
@@ -61,7 +61,13 @@ class _Upstream(BaseHTTPRequestHandler):
                 self.wfile.write(piece)
                 self.wfile.flush()
             return
-        data = json.dumps({"id": "resp", "choices": [{"message": {"content": "ok"}}]}).encode()
+        data = json.dumps(
+            {
+                "id": "resp",
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20},
+            }
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
@@ -88,6 +94,7 @@ def proxy(tmp_path, upstream):
         max_tool_chars=1_000,
         keep_recent=2,
         cache_path=tmp_path / "proxy-cache.sqlite",
+        ledger_path=tmp_path / "proxy-ledger.jsonl",
     )
     server = build_server(config)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -132,6 +139,42 @@ def test_proxy_trims_and_caches(proxy) -> None:
         health = json.loads(response.read())
     assert health["cache_hits"] == 1
     assert health["trimmed_requests"] >= 1
+
+    records = load_ledger(_server.config.ledger_path)
+    assert len(records) == 2
+    assert records[0]["trimmed_chars"] > 0
+    assert records[1]["cache_hit"] is True
+    summary = summarize_ledger(records)
+    assert summary.cache_hits == 1
+    assert summary.tokens_saved_cache > 0
+    assert summary.tokens_saved_trim > 0
+
+
+def test_summarize_ledger_prices_savings() -> None:
+    records = [
+        {
+            "model": "deepseek-v4",
+            "cache_hit": True,
+            "prompt_tokens": 1_000_000,
+            "completion_tokens": 1_000_000,
+            "trimmed_chars": 0,
+            "trimmed_tokens": 0,
+        },
+        {
+            "model": "deepseek-v4",
+            "cache_hit": False,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "trimmed_chars": 3_600,
+            "trimmed_tokens": 1_000,
+        },
+    ]
+    summary = summarize_ledger(records)
+    assert summary.requests == 2
+    assert summary.tokens_saved_cache == 2_000_000
+    assert summary.tokens_saved_trim == 1_000
+    # 缓存：1M 输入 0.55 + 1M 输出 1.70；裁剪：1K 输入 0.55/1M
+    assert summary.cost_saved_usd == pytest.approx(2.25 + 0.00055)
 
 
 def test_proxy_streams_and_does_not_cache(proxy) -> None:
