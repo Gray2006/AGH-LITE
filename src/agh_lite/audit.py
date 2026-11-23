@@ -680,6 +680,43 @@ def audit_records(
         )
 
 
+    # 3c. system prompt 每一步都变，但只是时间戳之类的动态注入
+    volatile_system = [
+        record
+        for record in records
+        if len(record.steps) >= 10
+        and record.system_volatile_changes >= max(5, len(record.steps) // 2)
+        and record.cache_hit_ratio < 0.5
+    ]
+    if volatile_system:
+        volatile_tokens = sum(record.prompt_tokens for record in volatile_system)
+        max_volatile = max(record.system_volatile_changes for record in volatile_system)
+        worst = sorted(volatile_system, key=lambda record: record.prompt_tokens, reverse=True)[:3]
+        findings.append(
+            Finding(
+                code="volatile_system_prompt",
+                severity="high" if any(record.cache_hit_ratio < 0.2 for record in volatile_system) else "medium",
+                title="system prompt 每步都在变，缓存从第一步就打不中",
+                detail=(
+                    f"{len(volatile_system)} 个会话的 system prompt 几乎每步都不同，"
+                    f"但去掉时间戳后语义没变（最多 {max_volatile} 次），"
+                    f"合计 {format_tokens(volatile_tokens)} prompt tokens。"
+                    "这通常是运行时把「当前时间/环境快照」注入了 system，而不是规则真的改了。"
+                ),
+                recommendation=(
+                    "把动态内容从 system 挪到最后一条 user 消息；system 只放稳定规则。"
+                    "如果无法改 DSH 的注入方式，至少别在 system 里放随时间变化的清单。"
+                ),
+                estimated_tokens=int(volatile_tokens * 0.15),
+                evidence=[
+                    f"会话 {_short(record.session_id)}：{len(record.steps)} 步，"
+                    f"system 原始变化 {record.system_volatile_changes} 次（语义未变），"
+                    f"命中 {record.cache_hit_ratio:.0%}"
+                    for record in worst
+                ],
+            )
+        )
+
     # 4. 静态前缀过重（工具集 / system prompt）
     static_tokens = max(totals.system_tokens + totals.tool_schema_tokens, 0)
     if static_tokens >= STATIC_PREFIX_TOKENS and totals.steps:

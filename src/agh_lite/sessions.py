@@ -185,8 +185,10 @@ class SessionRecord:
     events: int = 0
     header_changes: int = 0
     system_changes: int = 0
+    system_volatile_changes: int = 0
     _last_header_hash: str = field(default="", repr=False)
     _last_system_hash: str = field(default="", repr=False)
+    _last_system_raw_hash: str = field(default="", repr=False)
     profile: TokenProfile = DEFAULT_PROFILE
 
     # ------------------------------------------------------------ 派生量
@@ -318,6 +320,38 @@ def _fingerprint(value: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+_VOLATILE_PATTERNS = [
+    re.compile(r"\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?"),
+    re.compile(r"\b\d{1,2}:\d{2}:\d{2}\b"),
+    re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"),
+    re.compile(r"\b\d{10,13}\b"),
+]
+
+
+def _normalize_volatile(text: str) -> str:
+    """把时间戳一类每步都变、但不改变语义的内容折叠，避免把动态注入误判成 prompt 改写。"""
+    # 整行都是时间/环境快照的直接丢掉；行内残留的时间戳再抹掉
+    lines = [line for line in text.splitlines() if not any(p.search(line) for p in _VOLATILE_PATTERNS)]
+    text = "\n".join(lines)
+    for pattern in _VOLATILE_PATTERNS:
+        text = pattern.sub("", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                parts.append(str(block.get("text", "")))
+        return "\n".join(parts)
+    return ""
+
+
 def _content_chars(content: Any) -> int:
     if isinstance(content, str):
         return len(content)
@@ -435,10 +469,16 @@ def load_session(path: str | Path, *, profile: TokenProfile | None = None) -> Se
             message = data.get("message") if isinstance(data.get("message"), dict) else {}
             # 真实 DSH 每一步都会写一条 system/message，取最大而不是累加
             record.system_chars = max(record.system_chars, _content_chars(message.get("content")))
-            fingerprint = _fingerprint(message.get("content"))
-            if record._last_system_hash and fingerprint != record._last_system_hash:
-                record.system_changes += 1
-            record._last_system_hash = fingerprint
+            raw_text = _content_text(message.get("content"))
+            raw_hash = _fingerprint(raw_text)
+            stable_hash = _fingerprint(_normalize_volatile(raw_text))
+            if record._last_system_raw_hash and raw_hash != record._last_system_raw_hash:
+                if stable_hash != record._last_system_hash:
+                    record.system_changes += 1
+                else:
+                    record.system_volatile_changes += 1
+            record._last_system_raw_hash = raw_hash
+            record._last_system_hash = stable_hash
         elif event_type == "assistant/message":
             message = data.get("message") if isinstance(data.get("message"), dict) else {}
             usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}

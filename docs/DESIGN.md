@@ -81,6 +81,10 @@ zstd 读取：本机 zstandard 0.25 的 `stream_reader` 迭代会抛 `io.Unsuppo
 同会话里指纹变了就计一次 `header_changes` / `system_changes`——这是判断「缓存为什么打不中」的证据，
 比只看命中率有用。
 
+system 指纹先做一次归一化：丢掉整行时间/环境快照，抹掉行内时间戳、UUID、epoch。
+原始文本变了但归一化后没变，记 `system_volatile_changes`，单独对应 `volatile_system_prompt` 规则；
+这样不会把 DSH 每步注入的「现在几点」误判成规则改写。
+
 ### `audit.py`
 
 规则与估算权重：

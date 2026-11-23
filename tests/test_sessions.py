@@ -177,3 +177,18 @@ def test_header_and_system_changes_are_counted(write_session, events) -> None:
     record = load_session(write_session(extra))
     assert record.header_changes == 1
     assert record.system_changes == 1
+
+
+def test_volatile_system_changes_are_separated(write_session, events) -> None:
+    base = events[2]["data"]["message"]["content"]
+    extra = list(events)
+    extra.append(
+        {
+            "type": "system/message",
+            "time": 2_600,
+            "data": {"message": {"role": "system", "content": base + "\n现在 2026-11-11 19:30:38"}},
+        }
+    )
+    record = load_session(write_session(extra))
+    assert record.system_changes == 0  # 只有时间戳变化
+    assert record.system_volatile_changes == 1

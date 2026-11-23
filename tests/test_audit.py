@@ -272,3 +272,17 @@ def test_workspace_rows(tmp_path, write_session) -> None:
     assert sum(row["sessions"] for row in workspaces.values()) == 2
     text = report.render_markdown()
     assert "按 workspace" in text
+
+
+def test_volatile_system_prompt_rule(tmp_path, write_session) -> None:
+    events = _unstable_events()
+    # 把 system 变化改成「只变时间戳」：语义不变，但每步原始文本不同
+    index = 0
+    for event in events:
+        if event["type"] == "system/message":
+            index += 1
+            event["data"]["message"]["content"] = f"规则不变\n现在 2026-11-11 19:30:{index:02d}"
+    write_session(events, session_id="volatile")
+    report = audit_home(tmp_path)
+    codes = {finding.code for finding in report.findings}
+    assert "volatile_system_prompt" in codes
