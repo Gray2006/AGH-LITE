@@ -255,11 +255,12 @@ def _unstable_events() -> list[dict]:
     return events
 
 
-def test_unstable_prefix_rule(tmp_path, write_session) -> None:
+def test_unstable_prefix_rules(tmp_path, write_session) -> None:
     write_session(_unstable_events(), session_id="unstable")
     report = audit_home(tmp_path)
     codes = {finding.code for finding in report.findings}
-    assert "unstable_prefix" in codes
+    assert "unstable_tools" in codes
+    assert "unstable_system" in codes
 
 
 def test_workspace_rows(tmp_path, write_session) -> None:

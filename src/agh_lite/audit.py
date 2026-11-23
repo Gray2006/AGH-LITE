@@ -796,44 +796,76 @@ def audit_records(
             )
         )
 
-    # 3b. 前缀本身在变：工具集或 system prompt 反复改写，缓存永远打不中
-    unstable = [
+    # 3b. 工具集反复变
+    unstable_tools = [
         record
         for record in records
         if len(record.steps) >= 10
-        and (record.header_changes >= max(3, len(record.steps) // 10) or record.system_changes >= 3)
+        and record.header_changes >= max(3, len(record.steps) // 10)
         and record.cache_hit_ratio < 0.7
     ]
-    if unstable:
-        unstable_tokens = sum(record.prompt_tokens for record in unstable)
-        worst = sorted(unstable, key=lambda record: record.prompt_tokens, reverse=True)[:3]
+    if unstable_tools:
+        tools_tokens = sum(record.prompt_tokens for record in unstable_tools)
+        worst = sorted(unstable_tools, key=lambda record: record.prompt_tokens, reverse=True)[:3]
         findings.append(
             Finding(
-                code="unstable_prefix",
-                severity="high" if any(record.cache_hit_ratio < 0.4 for record in unstable) else "medium",
-                title="前缀在变，缓存自然打不中",
+                code="unstable_tools",
+                severity="high" if any(record.cache_hit_ratio < 0.4 for record in unstable_tools) else "medium",
+                title="工具集在变，缓存前缀跟着失效",
                 detail=(
-                    f"{len(unstable)} 个会话里工具集或 system prompt 反复变化"
-                    f"（最多 {max(record.header_changes for record in unstable)} 次 header 变化、"
-                    f"{max(record.system_changes for record in unstable)} 次 system 变化），"
-                    f"合计 {format_tokens(unstable_tokens)} prompt tokens。"
+                    f"{len(unstable_tools)} 个会话里工具定义反复变化"
+                    f"（最多 {max(record.header_changes for record in unstable_tools)} 次），"
+                    f"合计 {format_tokens(tools_tokens)} prompt tokens。"
+                    "工具 schema 位于请求最前面，一变，后面的历史缓存全部作废。"
                 ),
                 recommendation=(
-                    "同一任务里别换工具集；system prompt 去掉时间戳、随机 id、每步变化的清单；"
-                    "把动态内容移到最后一条 user 消息，稳定部分保持逐字节一致。"
+                    "同一任务里别切换工具集；用固定的小工具集，按需在会话开始前定好；"
+                    "别按步骤临时增减工具。"
                 ),
-                estimated_tokens=int(unstable_tokens * 0.15),
+                estimated_tokens=int(tools_tokens * 0.1),
                 evidence=[
                     f"会话 {_short(record.session_id)}：{len(record.steps)} 步，"
-                    f"header 变 {record.header_changes} 次，system 变 {record.system_changes} 次，"
-                    f"命中 {record.cache_hit_ratio:.0%}"
+                    f"header 变 {record.header_changes} 次，命中 {record.cache_hit_ratio:.0%}"
                     for record in worst
                 ],
             )
         )
 
+    # 3c. system prompt 被反复改写（语义真的变了）
+    unstable_system = [
+        record
+        for record in records
+        if len(record.steps) >= 10
+        and record.system_changes >= 3
+        and record.cache_hit_ratio < 0.7
+    ]
+    if unstable_system:
+        system_tokens = sum(record.prompt_tokens for record in unstable_system)
+        worst = sorted(unstable_system, key=lambda record: record.prompt_tokens, reverse=True)[:3]
+        findings.append(
+            Finding(
+                code="unstable_system",
+                severity="medium",
+                title="system prompt 反复改写",
+                detail=(
+                    f"{len(unstable_system)} 个会话里 system prompt 语义发生变化"
+                    f"（最多 {max(record.system_changes for record in unstable_system)} 次），"
+                    f"合计 {format_tokens(system_tokens)} prompt tokens。"
+                ),
+                recommendation=(
+                    "规则类内容会话内保持不动；要加约束就追加到最后一条 user 消息；"
+                    "别把每步生成的清单写回 system。"
+                ),
+                estimated_tokens=int(system_tokens * 0.1),
+                evidence=[
+                    f"会话 {_short(record.session_id)}：{len(record.steps)} 步，"
+                    f"system 变 {record.system_changes} 次，命中 {record.cache_hit_ratio:.0%}"
+                    for record in worst
+                ],
+            )
+        )
 
-    # 3c. system prompt 每一步都变，但只是时间戳之类的动态注入
+    # 3d. system prompt 每一步都变，但只是时间戳之类的动态注入
     volatile_system = [
         record
         for record in records

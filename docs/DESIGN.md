@@ -94,7 +94,8 @@ system 指纹先做一次归一化：丢掉整行时间/环境快照，抹掉行
 | `duplicate_tool_calls` | 同会话内 `name + arguments` 完全一致 | 重复结果的 token |
 | `oversized_tool_outputs` | 单条结果 > 8K tokens | 超出部分 × 60% |
 | `low_prefix_cache` | prompt ≥ 50K 且命中 < 40% | 该会话 prompt × 10% |
-| `unstable_prefix` | header/system 指纹反复变化且命中 < 70% | 相关 prompt × 15% |
+| `unstable_tools` | header 指纹反复变化且命中 < 70% | 相关 prompt × 10% |
+| `unstable_system` | system 指纹（归一化后）反复变化且命中 < 70% | 相关 prompt × 10% |
 | `static_prefix_bloat` | system + 工具 schema ≥ 12K | 静态前缀 × 步数 × 15% |
 | `context_bloat` | 每步平均 prompt ≥ 120K，或 20 步以上从不压缩 | 相关会话 prompt × 10% |
 | `heavy_reasoning` | output > 5K 且 reasoning 文本 > 正文 3 倍 | output × 20% |

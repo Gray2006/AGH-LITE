@@ -173,7 +173,8 @@ Audit rules:
 | `duplicate_tool_calls` | identical `name + arguments` within a session | duplicate result tokens |
 | `oversized_tool_outputs` | one result > 8K tokens | excess × 60% |
 | `low_prefix_cache` | prompt ≥ 50K and hit < 40% | session prompt × 10% |
-| `unstable_prefix` | tool set or system prompt keeps changing, hit < 70% | related prompt × 15% |
+| `unstable_tools` | tool set keeps changing, hit < 70% | related prompt × 10% |
+| `unstable_system` | system prompt semantics keep changing, hit < 70% | related prompt × 10% |
 | `volatile_system_prompt` | system only changes timestamps/env snapshots, hit < 50% | related prompt × 15% |
 | `static_prefix_bloat` | system + tool schema ≥ 12K | static prefix × steps × 15% |
 | `context_bloat` | average prompt ≥ 120K, or 20+ steps without compaction | related prompt × 10% |
