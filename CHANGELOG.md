@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 (2026-11-24)
+
+### 新增
+
+- `agh-lite proxy`：本地 OpenAI 兼容代理，自动裁剪较早的长工具结果、缓存非流式重复请求；只监听 127.0.0.1，不改 DSH 安装。`--no-trim` / `--no-cache` 可分别关闭，`/agh-lite/health` 看命中与裁剪计数。
+- `cache` 连接允许跨线程使用（代理内部加锁），`cache stats` 的 saved_usd 同样适用。
+
+### 说明
+
+- 代理是显式选择：把 DSH provider 的 baseUrl 指到本地端口，删掉 provider 即恢复；不是 MITM。
+
 ## 0.3.0 (2026-11-24)
 
 ### 新增
