@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0 (2026-11-24)
+
+### 新增
+
+- 代理节省账本：每次请求把裁剪字符、缓存命中、usage 写进 `~/.dsh/agh-lite-proxy.jsonl`。
+- `agh-lite proxy --stats [--json]`：汇总请求数、缓存命中、裁剪量、省下的 tokens 与折合费用。
+
 ## 0.7.0 (2026-11-24)
 
 ### 新增
