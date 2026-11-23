@@ -1,0 +1,245 @@
+# agh-lite
+
+[English](README.en.md) · [简体中文](README.md) · MIT
+
+从 [AGH](https://github.com/Gray2006/AGH) 蒸馏出来的**个人版 token 经济工具箱**。离线读 DSH 会话，回答「钱花在哪、哪一步可以砍」；再把预算、缓存、去重、哈希链做成可嵌入的库。
+
+> 不改 DSH 内核，不注册插件，不代理请求。审计只读本地会话，不写、不上传。
+
+```
+DSH 会话 (.jsonl.zstd)
+   │  只读
+   ▼
+audit ── 重复调用 / 超大结果 / 前缀缓存 / 上下文膨胀 / 静态前缀
+   │
+   ▼
+估算报告 ── tokens · 费用 · 可省上限
+   │
+   ├── pack    预算内打包 + 去重（时间按半衰期降权）
+   ├── cache   内容寻址的响应缓存
+   ├── budget  预授权 / 结算 / 落盘
+   └── journal 哈希链账本
+```
+
+---
+
+## 它解决什么
+
+DSH 只记 token，不记钱。一个长会话跑下来，账单通常长这样：prompt 越滚越大，每一步都在为前面的历史重新付费，但没人知道哪一段是白付的。
+
+常见的直觉是「工具输出太占地方」。实测不是：在 4.6B tokens 的样本里，工具结果只占 prompt 的 0.2%，真正贵的是**每步都重读的历史**和**每次请求都带着的 52K 工具定义**。
+
+agh-lite 把这件事拆开：先告诉你钱花在哪，再把「怎么少花」做成能嵌进自己脚本的零件。
+
+## 装
+
+需要 Python 3.12+。
+
+```bash
+# 只审计明文会话，不需要任何依赖
+pip install -e .
+
+# 要读 DSH 的 .jsonl.zstd 会话（推荐）
+pip install -e '.[dsh]'
+
+# 开发
+pip install -e '.[dev]'
+```
+
+## 用
+
+### 审计
+
+```bash
+# 默认读 $DSH_HOME 或 ~/.dsh
+agh-lite audit
+
+# 最近 7 天、最多 30 个会话，写 Markdown
+agh-lite audit --days 7 --limit 30 --out runs/audit.md
+
+# 机器可读
+agh-lite audit --format json
+
+# 用自己的价格表估算费用
+agh-lite audit --pricing my-prices.json
+
+# 分享前把本机绝对路径脱敏
+agh-lite audit --redact --out runs/audit.md
+```
+
+报告里有什么：
+
+| 部分 | 内容 |
+|---|---|
+| 总览 | 总 tokens、prompt / output、缓存命中、工具 schema、估算费用 |
+| 最该先动的几件事 | 每条问题给证据、做法、估算省多少 tokens / 多少钱 |
+| 按模型 | 各模型的 tokens 占比与估算费用 |
+| 会话排行 | 最贵的会话及其缓存命中、重复量 |
+
+### 打包
+
+```bash
+agh-lite pack --input segments.json --budget 60000 --render
+```
+
+输入是段列表：
+
+```json
+{
+  "segments": [
+    {"id": "rules", "text": "...", "kind": "system", "priority": 0.9},
+    {"id": "task", "text": "...", "role": "user", "priority": 0.8},
+    {"id": "old", "text": "...", "priority": 0.3, "timestamp": 1730000000},
+    {"id": "noise", "text": "...", "priority": 0.1}
+  ]
+}
+```
+
+规则：`system` / `pinned` / 末尾 `protect_last` 段先占预算；其余按 `priority + kind 权重 + 时间衰减` 贪心装入，装不下带原因丢弃。时间权重是半衰期衰减，最新 0.3，一个时间跨度前减半。
+
+### 缓存、预算、日志
+
+这三个是库，接在自己的调用脚本里：
+
+```python
+from agh_lite.budget import TokenBudget
+from agh_lite.cache import ResponseCache
+
+budget = TokenBudget(limit_tokens=2_000_000)
+cache = ResponseCache("~/.dsh/agh-lite-cache.sqlite")
+
+key = cache.make_key(model, messages, params)
+hit = cache.get(key)
+if hit is not None:
+    return hit.response
+
+lease = budget.reserve(owner="chat", max_tokens=estimated_prompt + max_output, key=key)
+try:
+    response, usage = call_llm(messages)
+except Exception:
+    budget.release(lease)
+    raise
+budget.settle(lease, actual_tokens=usage.total_tokens, key=key)
+cache.put(key, response, prompt_tokens=usage.prompt_tokens, completion_tokens=usage.completion_tokens)
+```
+
+`budget.save(path)` / `TokenBudget.load(path)` 可以把窗口落盘，重启后已结算的幂等键仍然有效。
+
+哈希链日志：
+
+```bash
+agh-lite journal append --kind note --data '{"msg":"..."}'
+agh-lite journal verify
+```
+
+## 它怎么工作
+
+| 文件 | 作用 |
+|---|---|
+| `sessions.py` | 解析 DSH 会话（明文与多帧 zstd），抽 usage、工具调用、压缩、重试 |
+| `audit.py` | 八条规则的离线审计，中文报告与 JSON |
+| `pricing.py` | 模型价格表与费用估算，未知模型不猜价 |
+| `pack.py` | 精确 + 近似去重，预算内选择 |
+| `cache.py` | SQLite 内容寻址缓存，TTL 与命中统计 |
+| `budget.py` | 单窗口预授权 / 结算 / 违规 / TTL 回收 / 落盘 |
+| `journal.py` | 哈希链日志 |
+| `tokens.py` | 无 usage 时的 token 估算（CJK / ASCII 分桶） |
+
+口径：
+
+- `prompt = inputTokens + cacheReadTokens`，`output` 为模型输出，`total` 取会话里的 `totalTokens`；
+- 费用 = `input × 输入价 + cacheRead × 缓存价 + output × 输出价`，单价按百万 tokens；
+- 缓存命中的 prompt 按缓存价计，这是长会话里最大的一笔折扣；
+- `--days` 按会话内最后事件时间筛选，文件 mtime 只做粗筛；
+- 同一模型跨 provider 前缀归一，`deepseek/deepseek-v4.1-flash` 与 `deepseek-v4.1-flash` 视为同一个。
+
+审计规则：
+
+| 规则 | 触发 | 估算 |
+|---|---|---|
+| `duplicate_tool_calls` | 同会话内 `name + arguments` 完全一致 | 重复结果的 token |
+| `oversized_tool_outputs` | 单条结果 > 8K tokens | 超出部分 × 60% |
+| `low_prefix_cache` | prompt ≥ 50K 且命中 < 40% | 该会话 prompt × 10% |
+| `static_prefix_bloat` | system + 工具 schema ≥ 12K | 静态前缀 × 步数 × 15% |
+| `context_bloat` | 每步平均 prompt ≥ 120K，或 20 步以上从不压缩 | 相关会话 prompt × 10% |
+| `heavy_reasoning` | output > 5K 且 reasoning 文本 > 正文 3 倍 | output × 20% |
+| `provider_retries` | 单会话 `llm/retry` ≥ 3 | 0（无法确认计费） |
+| `repeated_file_reads` | 同路径同区间 read ≥ 2 次 | 重复结果 token |
+
+各项互相重叠，`potential_savings` 不相加，按总量 25% 封顶。
+
+## 真实数据
+
+在约 180 个 DSH 会话上跑过一次全量审计（13.6 秒）：
+
+| 指标 | 数值 |
+|---|---|
+| 总 tokens | 4.60B |
+| prompt / output | 4.58B / 17.0M |
+| 前缀缓存命中 | 90% |
+| 平均每步 prompt | 149.5K |
+| 工具 schema（单次请求） | 52.7K（122 个工具） |
+| 系统提示（单次请求） | 6.5K |
+| 手动 compress / 自动压缩 | 351 / 755 |
+| 供应商重试 | 5309 次 |
+| 估算费用 | 约 $245（可省约 $36.55） |
+
+审计给出的前三件事：
+
+1. **上下文膨胀**：48 个会话平均每步 prompt 超过 120K，最高 282K，估算可省 381M tokens。
+2. **静态前缀过重**：每次请求都带着约 59K 的 system + 工具 schema，估算 273M。
+3. **部分会话前缀缓存低**：13 个会话命中率低于 40%，估算 28M。
+
+结论和直觉相反：**工具结果只占 prompt 的 0.2%，真正贵的是每步都重读的历史和 52K 的工具定义。**
+
+## 与 AGH 的关系
+
+| AGH | agh-lite | 为什么留 |
+|---|---|---|
+| `ledger.py` | `budget.py` | 预授权 + 结算 + TTL 回收，个人也要防手滑 |
+| `bus.py` 去重 | `pack.py` | 只留内容去重，去掉跨进程投递 |
+| `billing.py` | `pricing.py` | 把「结算后扣款」换成「这些 token 值多少钱」 |
+| `forgetting.py` | `pack.py` | 借用半衰期衰减，给旧片段降权 |
+| `timestamp.py` | `sessions.py` | 用会话内事件时间，而不是文件 mtime |
+| `crypto.py` / `frozen.py` | `journal.py` | 只留「可验证的本地账」，去掉签名网关 |
+| `eventlog.py` | `journal.py` | 哈希链保留，L1 重放去掉 |
+| `contracts.py` / `arena.py` / `gate.py` | 无 | 多智能体治理，个人版用不上 |
+
+## 已知边界
+
+- **不代理请求**。DSH 发行版没有公开的请求钩子，硬接只能改内核或 MITM；审计离线做，其余能力做成库。
+- **费用是估算，不是账单**。价格表在 `pricing.py`，未命中的模型不计价，会列进 `unknown_models`。
+- **缓存只认同一个请求**。输入逐字节规范化后一致才命中，不做语义匹配；有副作用的工具链不该缓存。
+- **哈希链只防「改一条看不出来」**，防不了有写权限的人重写整条链。
+- **预算只维护一个窗口**，日/月边界由调用方重置；不承诺分布式 exactly-once。
+- **审计报告默认不公开**。本机跑出来的报告含真实会话统计，留在本地；仓库只放聚合数字。
+
+## 开发
+
+```bash
+python -m pytest
+python -m ruff check .
+```
+
+```
+src/agh_lite/
+  tokens.py     token 估算（CJK / ASCII / other 分桶）
+  budget.py     预算租约、结算、落盘
+  cache.py      SQLite 响应缓存
+  pack.py       上下文打包与去重
+  journal.py    哈希链日志
+  sessions.py   DSH 会话解析（含 zstd 多帧）
+  pricing.py    模型价格表与费用估算
+  audit.py      离线审计规则与报告
+  cli.py        命令行入口
+```
+
+更细的设计取舍见 [docs/DESIGN.md](docs/DESIGN.md)。
+
+## 作者
+
+本项目由 [Gray2006](https://github.com/Gray2006) 与 AI 编码助手协作完成。
+
+## 许可
+
+MIT

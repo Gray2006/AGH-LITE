@@ -1,0 +1,65 @@
+[project]
+name = "agh-lite"
+version = "0.1.0"
+description = "AGH Lite: 个人版 Token 经济工具箱——审计 DSH 会话、打包上下文、缓存复用、预算硬闸门。"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [{ name = "Gray2006", email = "132803601+Gray2006@users.noreply.github.com" }]
+keywords = ["tokens", "context", "cache", "budget", "dsh", "llm", "personal"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Utilities",
+    "Typing :: Typed",
+]
+
+dependencies = []
+
+[project.optional-dependencies]
+# 读 DSH 的 .jsonl.zstd 会话需要它；纯 jsonl 与其它功能不需要
+dsh = ["zstandard>=0.22"]
+dev = ["pytest>=8", "ruff>=0.6", "zstandard>=0.22"]
+
+[project.scripts]
+agh-lite = "agh_lite.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Gray2006/AGH-LITE"
+Repository = "https://github.com/Gray2006/AGH-LITE"
+Documentation = "https://github.com/Gray2006/AGH-LITE#readme"
+Issues = "https://github.com/Gray2006/AGH-LITE/issues"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["agh_lite*"]
+
+[tool.setuptools.package-data]
+agh_lite = ["py.typed"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+# 中文注释与文案里的全角标点是有意的，不当歧义字符处理
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agh_lite"]
