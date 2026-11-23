@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.2.0 (2026-11-23)
+
+从 AGH v0.10.0 回收四样东西：计费口径、遗忘曲线、时间口径、可持久账本。
+
+### 新增
+
+- `pricing`：模型价格表 + 费用估算。`audit` 报告现在给出估算总花费、按模型的 tokens/费用拆分，以及每条建议折合多少钱；未命中的模型不计价。
+- `audit --pricing FILE`：用自己的价格表覆盖内置价格。
+- `TokenBudget.save/load`：预算窗口落盘与恢复，重启后幂等键仍有效。
+- `SessionRecord.started_at/ended_at`、`StepUsage.model`：按会话内事件时间统计，`--days` 不再依赖文件 mtime。
+
+### 变更
+
+- `pack` 的时间权重由线性改为半衰期衰减（借 AGH `forgetting.py` 的思路），最新片段 0.3，一个时间跨度前减半。
+- 审计的「按模型」表：同一模型跨 provider 前缀归一，例如 `deepseek/deepseek-v4.1-flash`。
+- 内置价格表补了 `deepseek-flash` 与免费的 `glm-4-flash`。
+- 审计报告不再进版本库：真实报告含本机会话统计，留在本地。
+
+### 实测
+
+- 178 个会话、4.60B tokens，估算费用约 $245，可省约 $36.55。
+- 未知模型不再猜价，报告里单独列出。
+
 ## 0.1.0 (2026-11-23)
 
 首个版本。
