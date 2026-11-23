@@ -1,6 +1,6 @@
 [project]
 name = "agh-lite"
-version = "0.5.1"
+version = "0.6.0"
 description = "AGH Lite: 个人版 Token 经济工具箱——审计 DSH 会话、打包上下文、缓存复用、预算硬闸门。"
 readme = "README.md"
 license = { text = "MIT" }

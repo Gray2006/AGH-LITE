@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0 (2026-11-24)
+
+### 新增
+
+- `volatile_system_prompt` 规则：system 指纹先归一化时间戳、UUID、epoch，再判断变化；只变「现在几点」的会话单独归类，不再和真的规则改写混在一起。
+- `SessionRecord.system_volatile_changes`：原始文本变了但语义没变的次数。
+
+### 实测
+
+- 真实数据里 11 个会话命中 `unstable_prefix`（327M prompt tokens），其中 2 个是纯时间戳注入（37M），缓存命中 1% / 15%。
+
 ## 0.5.1 (2026-11-24)
 
 ### 修复
