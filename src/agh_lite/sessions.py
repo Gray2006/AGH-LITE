@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -302,6 +303,15 @@ class SessionRecord:
         )
 
 
+_WORKSPACE_ESCAPE = re.compile(r"~([0-9A-Fa-f]{4})")
+
+
+def _decode_workspace(name: str) -> str:
+    """DSH 把 cwd 编码成目录名（~5DE5 这种），解回来便于按项目聚合。"""
+    decoded = _WORKSPACE_ESCAPE.sub(lambda match: chr(int(match.group(1), 16)), name)
+    return decoded.strip("-") or name
+
+
 def _fingerprint(value: Any) -> str:
     """稳定的内容指纹：用来判断前缀（工具集 / system prompt）有没有变。"""
     payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
@@ -486,6 +496,10 @@ def load_session(path: str | Path, *, profile: TokenProfile | None = None) -> Se
             record.turns = max(record.turns, int(data.get("turn", 0) or 0))
 
     record.steps = [step_map[key] for key in sorted(step_map)]
+    if not record.cwd:
+        # 真实会话的 session 事件不一定带 cwd，用 sessions/<workspace>/<session>/ 的目录名兜底
+        workspace = path.parent.parent.name if path.parent.parent.name != "sessions" else ""
+        record.cwd = _decode_workspace(workspace)
     if record.turns == 0 and record.steps:
         record.turns = len({step.turn for step in record.steps})
     if first_time is not None and last_time is not None:
