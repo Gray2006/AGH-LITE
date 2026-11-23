@@ -186,6 +186,9 @@ def test_usage_reconciliation(tmp_path, write_session) -> None:
     text = report.render_markdown()
     assert "与真实账单对账" in text
     assert "实际花费" in text
+    assert report.calibration_factor is not None
+    assert report.calibration_factor > 1
+    assert "按真实账单校准" in text
 
 
 def test_usage_can_be_disabled(tmp_path, write_session) -> None:

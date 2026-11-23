@@ -161,7 +161,7 @@ agh-lite journal verify
 - 缓存命中的 prompt 按缓存价计，这是长会话里最大的一笔折扣；
 - `--days` 按会话内最后事件时间筛选，文件 mtime 只做粗筛；
 - 同一模型跨 provider 前缀归一，`deepseek/deepseek-v4.1-flash` 与 `deepseek-v4.1-flash` 视为同一个；
-- 有 `.dshw-usage.json` 时，估算费用会和真实账本对账，差额单独列出。
+- 有 `.dshw-usage.json` 时，估算费用会和真实账本对账，差额单独列出；差额超过 30% 会给一个校准系数，把「可省」换算成真实金额。
 
 审计规则：
 

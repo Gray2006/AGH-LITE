@@ -203,6 +203,21 @@ class AuditReport:
         return self.totals.cost_usd - self.usage.total_cost
 
     @property
+    def calibration_factor(self) -> float | None:
+        """真实账单 / 估算费用。价格表偏低时用它把「可省」换算成真钱。"""
+        if self.usage is None or not self.totals.has_cost or self.totals.cost_usd <= 0:
+            return None
+        return self.usage.total_cost / self.totals.cost_usd
+
+    @property
+    def calibrated_savings_usd(self) -> float | None:
+        factor = self.calibration_factor
+        savings = self.potential_savings_usd
+        if factor is None or savings is None:
+            return None
+        return savings * factor
+
+    @property
     def potential_savings(self) -> int:
         """各项估算上限的保守合并——不相加，避免把重叠收益算成钱。"""
         gross = sum(finding.estimated_tokens for finding in self.findings)
@@ -253,6 +268,12 @@ class AuditReport:
             "usage": None if self.usage is None else self.usage.to_dict(),
             "estimate_delta_usd": (
                 None if self.estimate_delta_usd is None else round(self.estimate_delta_usd, 4)
+            ),
+            "calibration_factor": (
+                None if self.calibration_factor is None else round(self.calibration_factor, 4)
+            ),
+            "calibrated_savings_usd": (
+                None if self.calibrated_savings_usd is None else round(self.calibrated_savings_usd, 4)
             ),
             "findings": [finding.to_dict() for finding in self.findings],
             "top_sessions": [summary.to_dict() for summary in self.top_sessions(top)],
@@ -368,6 +389,13 @@ class AuditReport:
                 lines += [
                     "> 估算与实际差超过 30%：先检查价格表是否覆盖了实际通道。"
                     "中转站常在官方价上加价，用 `--pricing` 换成自己的单价再比。",
+                    "",
+                ]
+            factor = self.calibration_factor
+            calibrated = self.calibrated_savings_usd
+            if factor is not None and calibrated is not None and abs(factor - 1) > 0.1:
+                lines += [
+                    f"> 按真实账单校准：估算 × {factor:.2f}，校准后可省约 {format_usd(calibrated)}。",
                     "",
                 ]
             lines += [

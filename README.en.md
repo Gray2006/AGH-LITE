@@ -161,7 +161,7 @@ Accounting conventions:
 - cached prompt tokens are billed at the cache price — the biggest discount in long sessions;
 - `--days` filters by the session's last event time; file mtime is only a coarse prefilter;
 - the same model behind different provider prefixes is normalized: `deepseek/deepseek-v4.1-flash` and `deepseek-v4.1-flash` are one model;
-- when `.dshw-usage.json` is present, the estimate is reconciled against the real ledger and the delta is listed.
+- when `.dshw-usage.json` is present, the estimate is reconciled against the real ledger and the delta is listed; if the delta exceeds 30%, a calibration factor converts the savings ceiling into real money.
 
 Audit rules:
 
