@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0 (2026-11-24)
+
+### 新增
+
+- `usage`：读 DSH 的 `.dshw-usage.json`，按天/模型聚合真实花费。
+- `audit --usage PATH` / `--no-usage`：报告新增「与真实账单对账」，给出实际花费、估算花费、差额，以及按天/按模型的真实费用；默认自动发现账本。
+- `cache stats` 增加折合费用与未定价模型，缓存省下的 tokens 能直接换成钱。
+- CI（ruff + pytest，Python 3.12/3.13）与版本号一致性测试。
+
+### 修复
+
+- `audit --days N --limit M` 的顺序：现在先按事件时间筛选，再截断，`--limit` 不会被旧会话占满。
+- `BudgetExceeded` 美元不足时不再谎报 tokens，异常带 `unit` 字段。
+
 ## 0.2.0 (2026-11-23)
 
 从 AGH v0.10.0 回收四样东西：计费口径、遗忘曲线、时间口径、可持久账本。
