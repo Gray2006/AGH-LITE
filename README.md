@@ -81,6 +81,7 @@ agh-lite audit --redact --out runs/audit.md
 | 最该先动的几件事 | 每条问题给证据、做法、估算省多少 tokens / 多少钱 |
 | 按模型 | 各模型的 tokens 占比与估算费用 |
 | 与真实账单对账 | 实际花费、估算花费、差额，以及按天/按模型的真实费用 |
+| 按 workspace | 哪个项目目录最烧 token，会话数与估算费用 |
 | 会话排行 | 最贵的会话及其缓存命中、重复量 |
 
 ### 打包
@@ -169,6 +170,7 @@ agh-lite journal verify
 | `duplicate_tool_calls` | 同会话内 `name + arguments` 完全一致 | 重复结果的 token |
 | `oversized_tool_outputs` | 单条结果 > 8K tokens | 超出部分 × 60% |
 | `low_prefix_cache` | prompt ≥ 50K 且命中 < 40% | 该会话 prompt × 10% |
+| `unstable_prefix` | 工具集或 system prompt 反复变化，且命中 < 70% | 相关 prompt × 15% |
 | `static_prefix_bloat` | system + 工具 schema ≥ 12K | 静态前缀 × 步数 × 15% |
 | `context_bloat` | 每步平均 prompt ≥ 120K，或 20 步以上从不压缩 | 相关会话 prompt × 10% |
 | `heavy_reasoning` | output > 5K 且 reasoning 文本 > 正文 3 倍 | output × 20% |

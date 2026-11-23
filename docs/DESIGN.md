@@ -77,6 +77,10 @@ compaction/start, compaction/summary, compaction/end, llm/retry, ...
 
 zstd 读取：本机 zstandard 0.25 的 `stream_reader` 迭代会抛 `io.UnsupportedOperation`，所以用 `read()` 一次读完再按行切；`read_across_frames=True` 支持多帧拼接。19.7MB 的最大会话约 1 秒。
 
+前缀指纹：`request/header` 的 config+tools 哈希、`system/message` 内容哈希。
+同会话里指纹变了就计一次 `header_changes` / `system_changes`——这是判断「缓存为什么打不中」的证据，
+比只看命中率有用。
+
 ### `audit.py`
 
 规则与估算权重：
@@ -86,6 +90,7 @@ zstd 读取：本机 zstandard 0.25 的 `stream_reader` 迭代会抛 `io.Unsuppo
 | `duplicate_tool_calls` | 同会话内 `name + arguments` 完全一致 | 重复结果的 token |
 | `oversized_tool_outputs` | 单条结果 > 8K tokens | 超出部分 × 60% |
 | `low_prefix_cache` | prompt ≥ 50K 且命中 < 40% | 该会话 prompt × 10% |
+| `unstable_prefix` | header/system 指纹反复变化且命中 < 70% | 相关 prompt × 15% |
 | `static_prefix_bloat` | system + 工具 schema ≥ 12K | 静态前缀 × 步数 × 15% |
 | `context_bloat` | 每步平均 prompt ≥ 120K，或 20 步以上从不压缩 | 相关会话 prompt × 10% |
 | `heavy_reasoning` | output > 5K 且 reasoning 文本 > 正文 3 倍 | output × 20% |

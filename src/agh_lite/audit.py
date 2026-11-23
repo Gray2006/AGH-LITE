@@ -218,6 +218,28 @@ class AuditReport:
     def top_sessions(self, limit: int = 10) -> list[SessionSummary]:
         return sorted(self.sessions, key=lambda item: item.total_tokens, reverse=True)[:limit]
 
+    def workspace_rows(self, limit: int = 10) -> list[dict[str, Any]]:
+        """按 cwd 聚合，回答「哪个项目最烧 token」。"""
+        grouped: dict[str, dict[str, Any]] = {}
+        for summary in self.sessions:
+            key = summary.cwd or "unknown"
+            row = grouped.setdefault(
+                key,
+                {"workspace": key, "sessions": 0, "tokens": 0, "cost_usd": 0.0, "priced": False},
+            )
+            row["sessions"] += 1
+            row["tokens"] += summary.total_tokens
+            if summary.cost_usd is not None:
+                row["cost_usd"] += summary.cost_usd
+                row["priced"] = True
+        rows = sorted(grouped.values(), key=lambda item: item["tokens"], reverse=True)
+        for row in rows:
+            if not row.pop("priced"):
+                row["cost_usd"] = None
+            else:
+                row["cost_usd"] = round(row["cost_usd"], 4)
+        return rows[:limit]
+
     def to_dict(self, *, top: int = 10) -> dict[str, Any]:
         return {
             "generated_at": self.generated_at,
@@ -234,6 +256,7 @@ class AuditReport:
             ),
             "findings": [finding.to_dict() for finding in self.findings],
             "top_sessions": [summary.to_dict() for summary in self.top_sessions(top)],
+            "workspaces": self.workspace_rows(top),
             "skipped": self.skipped,
         }
 
@@ -366,6 +389,22 @@ class AuditReport:
                         f"| {model} | {format_usd(row['cost'])} | {format_tokens(int(row['tokens']))} |"
                     )
                 lines.append("")
+
+        workspaces = self.workspace_rows(top)
+        if workspaces:
+            lines += [
+                "## 按 workspace",
+                "",
+                "| workspace | 会话 | 总 tokens | 估算费用 |",
+                "|---|---|---|---|",
+            ]
+            for row in workspaces:
+                cost = format_usd(row["cost_usd"]) if row["cost_usd"] is not None else "未配置"
+                lines.append(
+                    f"| `{row['workspace']}` | {row['sessions']} | "
+                    f"{format_tokens(row['tokens'])} | {cost} |"
+                )
+            lines.append("")
 
         sessions = self.top_sessions(top)
         if sessions:
@@ -572,7 +611,7 @@ def audit_records(
             )
         )
 
-    # 3. 前缀缓存命中低
+    # 3. 前缀缓存命中低，且前缀本身在变
     low_cache = [
         record
         for record in records
@@ -603,6 +642,43 @@ def audit_records(
                 ],
             )
         )
+
+    # 3b. 前缀本身在变：工具集或 system prompt 反复改写，缓存永远打不中
+    unstable = [
+        record
+        for record in records
+        if len(record.steps) >= 10
+        and (record.header_changes >= max(3, len(record.steps) // 10) or record.system_changes >= 3)
+        and record.cache_hit_ratio < 0.7
+    ]
+    if unstable:
+        unstable_tokens = sum(record.prompt_tokens for record in unstable)
+        worst = sorted(unstable, key=lambda record: record.prompt_tokens, reverse=True)[:3]
+        findings.append(
+            Finding(
+                code="unstable_prefix",
+                severity="high" if any(record.cache_hit_ratio < 0.4 for record in unstable) else "medium",
+                title="前缀在变，缓存自然打不中",
+                detail=(
+                    f"{len(unstable)} 个会话里工具集或 system prompt 反复变化"
+                    f"（最多 {max(record.header_changes for record in unstable)} 次 header 变化、"
+                    f"{max(record.system_changes for record in unstable)} 次 system 变化），"
+                    f"合计 {format_tokens(unstable_tokens)} prompt tokens。"
+                ),
+                recommendation=(
+                    "同一任务里别换工具集；system prompt 去掉时间戳、随机 id、每步变化的清单；"
+                    "把动态内容移到最后一条 user 消息，稳定部分保持逐字节一致。"
+                ),
+                estimated_tokens=int(unstable_tokens * 0.15),
+                evidence=[
+                    f"会话 {_short(record.session_id)}：{len(record.steps)} 步，"
+                    f"header 变 {record.header_changes} 次，system 变 {record.system_changes} 次，"
+                    f"命中 {record.cache_hit_ratio:.0%}"
+                    for record in worst
+                ],
+            )
+        )
+
 
     # 4. 静态前缀过重（工具集 / system prompt）
     static_tokens = max(totals.system_tokens + totals.tool_schema_tokens, 0)

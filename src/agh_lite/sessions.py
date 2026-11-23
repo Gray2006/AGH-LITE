@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections import Counter
@@ -181,6 +182,10 @@ class SessionRecord:
     llm_retries: int = 0
     error_results: int = 0
     events: int = 0
+    header_changes: int = 0
+    system_changes: int = 0
+    _last_header_hash: str = field(default="", repr=False)
+    _last_system_hash: str = field(default="", repr=False)
     profile: TokenProfile = DEFAULT_PROFILE
 
     # ------------------------------------------------------------ 派生量
@@ -297,6 +302,12 @@ class SessionRecord:
         )
 
 
+def _fingerprint(value: Any) -> str:
+    """稳定的内容指纹：用来判断前缀（工具集 / system prompt）有没有变。"""
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _content_chars(content: Any) -> int:
     if isinstance(content, str):
         return len(content)
@@ -395,6 +406,10 @@ def load_session(path: str | Path, *, profile: TokenProfile | None = None) -> Se
                     record.tool_schema_chars,
                     len(json.dumps(tools, ensure_ascii=False, separators=(",", ":"))),
                 )
+            fingerprint = _fingerprint({"config": config, "tools": tools})
+            if record._last_header_hash and fingerprint != record._last_header_hash:
+                record.header_changes += 1
+            record._last_header_hash = fingerprint
         elif event_type == "request/context":
             window = data.get("contextWindow")
             if isinstance(window, (int, float)):
@@ -410,6 +425,10 @@ def load_session(path: str | Path, *, profile: TokenProfile | None = None) -> Se
             message = data.get("message") if isinstance(data.get("message"), dict) else {}
             # 真实 DSH 每一步都会写一条 system/message，取最大而不是累加
             record.system_chars = max(record.system_chars, _content_chars(message.get("content")))
+            fingerprint = _fingerprint(message.get("content"))
+            if record._last_system_hash and fingerprint != record._last_system_hash:
+                record.system_changes += 1
+            record._last_system_hash = fingerprint
         elif event_type == "assistant/message":
             message = data.get("message") if isinstance(data.get("message"), dict) else {}
             usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}

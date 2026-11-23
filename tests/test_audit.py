@@ -205,3 +205,70 @@ def test_days_limit_applies_after_time_filter(tmp_path, write_session) -> None:
     report = audit_home(tmp_path, days=1, limit=1)
     assert report.totals.sessions == 1
     assert "recent-0" in report.sessions[0].path
+
+
+def _unstable_events() -> list[dict]:
+    events: list[dict] = [
+        {"type": "session", "time": 1_000, "data": {"id": "sess-u", "cwd": "G:\\work"}},
+        {
+            "type": "request/header",
+            "time": 1_100,
+            "data": {"header": {"config": {"provider": "p", "model": "m"}, "tools": [{"name": "a"}]}},
+        },
+        {"type": "system/message", "time": 1_200, "data": {"message": {"role": "system", "content": "s0"}}},
+    ]
+    for step in range(1, 11):
+        events.append(
+            {
+                "type": "assistant/message",
+                "time": 2_000 + step,
+                "data": {
+                    "turn": 1,
+                    "step": step,
+                    "usage": {"inputTokens": 1_000, "cacheReadTokens": 100, "outputTokens": 10},
+                    "message": {"content": [{"type": "text", "text": "x"}]},
+                },
+            }
+        )
+        events.append(
+            {
+                "type": "request/header",
+                "time": 3_000 + step,
+                "data": {
+                    "header": {
+                        "config": {"provider": "p", "model": "m"},
+                        "tools": [{"name": f"t{step}"}],
+                    }
+                },
+            }
+        )
+        events.append(
+            {
+                "type": "system/message",
+                "time": 4_000 + step,
+                "data": {"message": {"role": "system", "content": f"s{step}"}},
+            }
+        )
+    return events
+
+
+def test_unstable_prefix_rule(tmp_path, write_session) -> None:
+    write_session(_unstable_events(), session_id="unstable")
+    report = audit_home(tmp_path)
+    codes = {finding.code for finding in report.findings}
+    assert "unstable_prefix" in codes
+
+
+def test_workspace_rows(tmp_path, write_session) -> None:
+    first = build_events()
+    first[0]["data"]["cwd"] = "G:\\alpha"
+    second = build_events()
+    second[0]["data"]["cwd"] = "G:\\beta"
+    write_session(first, session_id="a")
+    write_session(second, session_id="b")
+    report = audit_home(tmp_path)
+    workspaces = {row["workspace"]: row for row in report.workspace_rows()}
+    assert set(workspaces) == {"G:\\alpha", "G:\\beta"}
+    assert sum(row["sessions"] for row in workspaces.values()) == 2
+    text = report.render_markdown()
+    assert "按 workspace" in text

@@ -81,6 +81,7 @@ What the report contains:
 | Top findings | evidence, recommendation, estimated tokens / money saved per issue |
 | By model | token share and estimated cost per model |
 | Reconciliation | actual spend, estimated spend, delta, and real cost by day/model |
+| By workspace | which project directory burns the most, sessions and estimated cost |
 | Session ranking | most expensive sessions with cache hit and duplicates |
 
 ### Pack
@@ -169,6 +170,7 @@ Audit rules:
 | `duplicate_tool_calls` | identical `name + arguments` within a session | duplicate result tokens |
 | `oversized_tool_outputs` | one result > 8K tokens | excess × 60% |
 | `low_prefix_cache` | prompt ≥ 50K and hit < 40% | session prompt × 10% |
+| `unstable_prefix` | tool set or system prompt keeps changing, hit < 70% | related prompt × 15% |
 | `static_prefix_bloat` | system + tool schema ≥ 12K | static prefix × steps × 15% |
 | `context_bloat` | average prompt ≥ 120K, or 20+ steps without compaction | related prompt × 10% |
 | `heavy_reasoning` | output > 5K and reasoning > 3× text | output × 20% |

@@ -151,3 +151,29 @@ def test_describe_contains_tokens(write_session) -> None:
     record = load_session(write_session())
     text = record.describe()
     assert "6.15K" in text or "tokens" in text
+
+
+def test_header_and_system_changes_are_counted(write_session, events) -> None:
+    extra = list(events)
+    extra.append(
+        {
+            "type": "request/header",
+            "time": 2_500,
+            "data": {
+                "header": {
+                    "config": {"provider": "deepseek", "model": "deepseek-v4"},
+                    "tools": [{"name": "new"}],
+                }
+            },
+        }
+    )
+    extra.append(
+        {
+            "type": "system/message",
+            "time": 2_600,
+            "data": {"message": {"role": "system", "content": "新提示词"}},
+        }
+    )
+    record = load_session(write_session(extra))
+    assert record.header_changes == 1
+    assert record.system_changes == 1
