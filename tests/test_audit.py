@@ -289,3 +289,13 @@ def test_volatile_system_prompt_rule(tmp_path, write_session) -> None:
     report = audit_home(tmp_path)
     codes = {finding.code for finding in report.findings}
     assert "volatile_system_prompt" in codes
+
+
+def test_html_report_is_self_contained(tmp_path, write_session) -> None:
+    write_session()
+    report = audit_home(tmp_path)
+    page = report.render_html()
+    assert page.startswith("<!doctype html>")
+    assert "<table>" in page
+    assert "<script" not in page
+    assert "DSH Token 审计报告" in page

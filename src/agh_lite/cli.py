@@ -53,6 +53,8 @@ def _cmd_audit(args: argparse.Namespace) -> int:
 
     if args.format == "json":
         payload = json.dumps(report.to_dict(top=args.top), ensure_ascii=False, indent=2)
+    elif args.format == "html":
+        payload = report.render_html(top=args.top)
     else:
         payload = report.render_markdown(top=args.top)
     if args.redact:
@@ -264,7 +266,7 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--limit", type=int, help="最多读取 N 个会话文件")
     audit.add_argument("--max-bytes", type=int, default=24 * 1024 * 1024, help="单文件读取上限")
     audit.add_argument("--top", type=int, default=10, help="报告里列几个问题/会话")
-    audit.add_argument("--format", choices=["md", "json"], default="md")
+    audit.add_argument("--format", choices=["md", "json", "html"], default="md")
     audit.add_argument("--redact", action="store_true", help="把报告里的本机绝对路径替换掉，便于分享")
     audit.add_argument("--pricing", help="自定义价格表 JSON（覆盖内置价格）")
     audit.add_argument("--usage", help="DSH 用量账本路径（默认自动找 $DSH_HOME/.dshw-usage.json）")

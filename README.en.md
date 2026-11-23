@@ -60,6 +60,9 @@ agh-lite audit --days 7 --limit 30 --out runs/audit.md
 # machine-readable
 agh-lite audit --format json
 
+# self-contained HTML for sharing or archiving
+agh-lite audit --format html --out runs/audit.html
+
 # custom price table
 agh-lite audit --pricing my-prices.json
 

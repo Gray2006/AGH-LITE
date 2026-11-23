@@ -60,6 +60,9 @@ agh-lite audit --days 7 --limit 30 --out runs/audit.md
 # 机器可读
 agh-lite audit --format json
 
+# 自包含 HTML，方便发给别人或存档
+agh-lite audit --format html --out runs/audit.html
+
 # 用自己的价格表估算费用
 agh-lite audit --pricing my-prices.json
 

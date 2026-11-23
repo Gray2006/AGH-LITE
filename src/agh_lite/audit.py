@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import html
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -465,6 +466,130 @@ class AuditReport:
             lines += ["", "跳过："]
             lines += [f"- {item}" for item in self.skipped[:10]]
         return "\n".join(lines)
+
+    # ------------------------------------------------------------ HTML
+    def render_html(self, *, top: int = 10) -> str:
+        """自包含 HTML：无外部资源，方便直接发给别人或存档。"""
+        esc = html.escape
+        totals = self.totals
+        generated = time.strftime("%Y-%m-%d %H:%M", time.localtime(self.generated_at / 1000))
+        rows: list[str] = []
+
+        def table(headers: list[str], body: list[list[str]]) -> str:
+            head = "".join(f"<th>{esc(item)}</th>" for item in headers)
+            cells = "".join(
+                "<tr>" + "".join(f"<td>{esc(cell)}</td>" for cell in row) + "</tr>" for row in body
+            )
+            return f"<table><thead><tr>{head}</tr></thead><tbody>{cells}</tbody></table>"
+
+        rows.append(
+            table(
+                ["指标", "数值"],
+                [
+                    ["会话 / 轮 / 步", f"{totals.sessions} / {totals.turns} / {totals.steps}"],
+                    ["总 tokens", f"{totals.total_tokens:,}"],
+                    ["prompt tokens", f"{totals.prompt_tokens:,}"],
+                    ["缓存命中", f"{totals.cache_hit_ratio:.0%}"],
+                    ["output tokens", f"{totals.output_tokens:,}"],
+                    ["工具结果 tokens", f"{totals.tool_result_tokens:,}（{totals.tool_share:.0%}）"],
+                    ["估算费用", format_usd(totals.cost_usd) if totals.has_cost else "未配置价格"],
+                    ["估算可省", format_tokens(self.potential_savings)],
+                ],
+            )
+        )
+
+        if self.findings:
+            cards = []
+            for finding in self.findings[:top]:
+                evidence = "".join(f"<li>{esc(item)}</li>" for item in finding.evidence)
+                cards.append(
+                    f'<div class="finding {esc(finding.severity)}">'
+                    f'<div class="badge">{esc(SEVERITY_LABEL.get(finding.severity, finding.severity))}</div>'
+                    f"<h3>{esc(finding.title)}</h3>"
+                    f"<p>{esc(finding.detail)}</p>"
+                    f"<p class='rec'>怎么做：{esc(finding.recommendation)}</p>"
+                    f"<ul>{evidence}</ul></div>"
+                )
+            rows.append("<h2>最该先动的几件事</h2>" + "".join(cards))
+
+        if self.usage is not None and self.usage.events:
+            delta = self.estimate_delta_usd
+            rows.append(
+                "<h2>与真实账单对账</h2>"
+                + table(
+                    ["项目", "金额"],
+                    [
+                        ["实际花费", format_usd(self.usage.total_cost)],
+                        ["估算花费", format_usd(totals.cost_usd) if totals.has_cost else "未配置价格"],
+                        ["差额", format_usd(delta) if delta is not None else "无法比较"],
+                    ],
+                )
+            )
+
+        workspaces = self.workspace_rows(top)
+        if workspaces:
+            rows.append(
+                "<h2>按 workspace</h2>"
+                + table(
+                    ["workspace", "会话", "总 tokens", "估算费用"],
+                    [
+                        [
+                            row["workspace"],
+                            str(row["sessions"]),
+                            format_tokens(row["tokens"]),
+                            format_usd(row["cost_usd"]) if row["cost_usd"] is not None else "未配置",
+                        ]
+                        for row in workspaces
+                    ],
+                )
+            )
+
+        sessions = self.top_sessions(top)
+        if sessions:
+            rows.append(
+                "<h2>会话排行</h2>"
+                + table(
+                    ["会话", "模型", "轮/步", "总 tokens", "缓存命中", "重复"],
+                    [
+                        [
+                            _short(summary.session_id, 12),
+                            summary.model or "-",
+                            f"{summary.turns}/{summary.steps}",
+                            format_tokens(summary.total_tokens),
+                            f"{summary.cache_hit_ratio:.0%}",
+                            format_tokens(summary.duplicate_tokens),
+                        ]
+                        for summary in sessions
+                    ],
+                )
+            )
+
+        style = """
+body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;max-width:960px;
+margin:2rem auto;padding:0 1rem;color:#1f2328;line-height:1.6}
+h1{font-size:1.6rem}h2{margin-top:2rem;border-bottom:1px solid #d0d7de;padding-bottom:.3rem}
+table{border-collapse:collapse;width:100%;margin:.8rem 0}
+th,td{border:1px solid #d0d7de;padding:.4rem .6rem;text-align:left;font-size:.92rem}
+th{background:#f6f8fa}
+.finding{border:1px solid #d0d7de;border-left:4px solid #8c959f;border-radius:6px;padding:.8rem 1rem;margin:.8rem 0}
+.finding.high{border-left-color:#cf222e}.finding.medium{border-left-color:#bf8700}.finding.low{border-left-color:#1a7f37}
+.badge{display:inline-block;font-size:.75rem;padding:.1rem .5rem;border-radius:999px;
+background:#eaeef2;margin-bottom:.3rem}
+.rec{color:#57606a}ul{margin:.4rem 0}
+footer{margin-top:2rem;color:#57606a;font-size:.85rem}
+"""
+        meta = (
+            f"<p>生成时间 {esc(generated)} · 数据目录 <code>{esc(str(self.home))}</code> · "
+            f"{'最近 ' + str(self.days) + ' 天' if self.days else '全部可用会话'}</p>"
+        )
+        return (
+            "<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            f"<title>DSH Token 审计报告</title><style>{style}</style></head><body>"
+            f"<h1>DSH Token 审计报告</h1>{meta}{''.join(rows)}"
+            "<footer>估算口径见 README；本报告只读生成，不含会话正文。</footer>"
+            "</body></html>"
+        )
 
 
 def _session_cost(
