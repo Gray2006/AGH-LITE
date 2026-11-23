@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0 (2026-11-24)
+
+### 变更
+
+- 把 `unstable_prefix` 拆成 `unstable_tools`（工具集变化）和 `unstable_system`（system 语义变化），分别给建议；两者不再混在一条里。
+- 相应调整估算权重：各占相关 prompt 的 10%。
+
 ## 0.9.0 (2026-11-24)
 
 ### 新增
