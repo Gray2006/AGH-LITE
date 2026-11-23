@@ -206,12 +206,31 @@ The counter-intuitive conclusion: **tool results are 0.2% of the prompt; the rea
 
 ## Can it actively save tokens?
 
-Not by intercepting DSH requests. It does two things:
+Yes, once you point DSH at it: `agh-lite proxy` starts a local OpenAI-compatible proxy and DSH talks to that instead of the upstream.
 
-- the offline audit shows where the money goes and which rule is worth fixing;
-- the libraries (`cache` / `pack` / `budget`) save money once wired into your own call path: cache hits avoid a repeated payment, over-budget calls are rejected, packing drops duplicate and low-value segments.
+```bash
+# upstream is whatever you normally use; listens on 127.0.0.1 only
+agh-lite proxy --upstream https://api.deepseek.com
 
-To compress or cache **before a request leaves DSH**, you need a plugin on the `agent/request` extension point. agh-lite deliberately does not do that: plugin APIs follow DSH releases, and a personal tool should not become an operations burden. If you want that layer, build a thin plugin and reuse `pack` and `pricing` from here.
+# cache only, no request rewriting, to verify connectivity
+agh-lite proxy --upstream https://api.deepseek.com --no-trim
+
+# tune trimming: keep 2000 chars per old tool result, leave the 6 newest alone
+agh-lite proxy --upstream https://api.deepseek.com --max-tool-chars 2000 --keep-recent 6
+```
+
+The proxy does two things, each can be turned off:
+
+| Action | Default | Notes |
+|---|---|---|
+| Trim | on | older `role=tool` results are cut to head + tail; the newest 8 messages are untouched; system/user/assistant are never rewritten |
+| Cache | on | non-streaming requests hit a body-hash cache and never reach upstream twice; streaming requests pass through unchanged |
+
+Then add an OpenAI-compatible provider in DSH with `baseUrl` = `http://127.0.0.1:8787/v1` and any key (the proxy does not check it); use the upstream model names. Remove the provider to opt out; DSH itself is untouched.
+
+Limits: local-only binding, no request bodies logged, no Authorization persisted; trimming changes the history the model sees, so for important sessions start with `--no-trim`. Health check: `curl http://127.0.0.1:8787/agh-lite/health`.
+
+Without the proxy, the libraries still work: wire `cache` / `pack` / `budget` into your own call path.
 
 ## Relation to AGH
 
@@ -230,6 +249,7 @@ To compress or cache **before a request leaves DSH**, you need a plugin on the `
 
 - **No request proxying.** DSH has no public pre-request hook; intercepting means patching the kernel or MITM. The audit is offline, the rest are libraries.
 - **Costs are estimates by default.** The price table lives in `pricing.py`; unknown models are left unpriced and listed in `unknown_models`. With `.dshw-usage.json` the audit reconciles against the real ledger, but the two count differently; a delta does not mean the bill is wrong.
+- **The proxy rewrites requests.** Trimming only touches older tool results, but the history the model sees does change; verify with `--no-trim` first.
 - **The cache matches one exact request.** Inputs must be byte-identical after normalization; no semantic matching. Do not cache side-effecting tool chains.
 - **The hash chain catches tampering with one entry**, not a full rewrite by someone with write access.
 - **The budget keeps one window.** Daily/monthly resets are the caller's job; no distributed exactly-once.
@@ -252,6 +272,7 @@ src/agh_lite/
   sessions.py   DSH session parsing (multi-frame zstd)
   pricing.py    model price table and cost estimation
   usage.py      reconcile against DSH's real usage ledger
+  proxy.py      local OpenAI-compatible proxy (trim + cache)
   audit.py      offline audit rules and report
   cli.py        command-line entry
 ```

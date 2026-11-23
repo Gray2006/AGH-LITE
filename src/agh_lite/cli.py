@@ -19,6 +19,7 @@ from .cache import ResponseCache
 from .journal import HashChainJournal, JournalCorrupt
 from .pack import PackBudgetExceeded, Segment, pack
 from .pricing import format_usd
+from .proxy import ProxyConfig, serve
 from .sessions import SessionReadError, load_session
 from .tokens import estimate_text_tokens, format_tokens
 
@@ -208,6 +209,25 @@ def _cmd_tokens(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_proxy(args: argparse.Namespace) -> int:
+    try:
+        config = ProxyConfig(
+            upstream=args.upstream,
+            host=args.host,
+            port=args.port,
+            trim=not args.no_trim,
+            max_tool_chars=args.max_tool_chars,
+            keep_recent=args.keep_recent,
+            cache=not args.no_cache,
+            cache_path=args.cache_path,
+        )
+    except ValueError as exc:
+        print(f"参数不对：{exc}", file=sys.stderr)
+        return 2
+    serve(config)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agh-lite",
@@ -258,6 +278,17 @@ def build_parser() -> argparse.ArgumentParser:
     tokens.add_argument("--input", help="文本文件；缺省读 stdin")
     tokens.add_argument("--session", help="DSH 会话文件，打印会话画像")
     tokens.set_defaults(func=_cmd_tokens)
+
+    proxy = sub.add_parser("proxy", help="本地 OpenAI 兼容代理：自动裁剪旧工具结果 + 缓存")
+    proxy.add_argument("--upstream", required=True, help="上游地址，如 https://api.deepseek.com")
+    proxy.add_argument("--host", default="127.0.0.1", help="监听地址（默认只本机）")
+    proxy.add_argument("--port", type=int, default=8787)
+    proxy.add_argument("--max-tool-chars", type=int, default=4_000, help="单条旧 tool 结果保留的字符数")
+    proxy.add_argument("--keep-recent", type=int, default=8, help="最近 N 条消息不动")
+    proxy.add_argument("--cache-path", help="缓存文件（默认 ~/.dsh/agh-lite-proxy-cache.sqlite）")
+    proxy.add_argument("--no-trim", action="store_true", help="只缓存，不裁剪")
+    proxy.add_argument("--no-cache", action="store_true", help="只裁剪，不缓存")
+    proxy.set_defaults(func=_cmd_proxy)
 
     return parser
 

@@ -80,7 +80,7 @@ class ResponseCache:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.ttl_seconds = ttl_seconds
         self._clock = clock or (lambda: int(time.time()))
-        self._db = sqlite3.connect(str(self.path), timeout=10)
+        self._db = sqlite3.connect(str(self.path), timeout=10, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA busy_timeout=5000")

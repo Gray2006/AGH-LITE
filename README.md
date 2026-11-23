@@ -206,12 +206,31 @@ agh-lite journal verify
 
 ## 能主动省 token 吗
 
-现在**不能替你拦 DSH 的请求**。它做两件事：
+能，但要你显式接一下：`agh-lite proxy` 起一个本地 OpenAI 兼容代理，把 DSH 的 provider 指过来。
 
-- 审计离线告诉你钱花在哪、哪条规则最值得改；
-- 库（`cache` / `pack` / `budget`）接进你自己的调用脚本后，命中缓存不重复付费、超预算直接拒绝、打包时砍掉重复和低价值片段。
+```bash
+# 上游填你平时用的地址；默认只监听 127.0.0.1
+agh-lite proxy --upstream https://api.deepseek.com
 
-想让「请求出门前自动压缩、自动缓存」，需要在 DSH 的 `agent/request` 扩展点上挂插件。agh-lite 刻意不做：插件 API 跟 DSH 版本走，个人版不想变成运维负担。真要做，更适合单独一个薄插件，复用这里的 `pack` 与 `pricing`。
+# 先只缓存、不改请求，验证连通
+agh-lite proxy --upstream https://api.deepseek.com --no-trim
+
+# 调裁剪力度：单条旧 tool 结果最多留 2000 字，最近 6 条不动
+agh-lite proxy --upstream https://api.deepseek.com --max-tool-chars 2000 --keep-recent 6
+```
+
+代理做两件事，都可单独关：
+
+| 动作 | 默认 | 说明 |
+|---|---|---|
+| 裁剪 | 开 | 较早的 `role=tool` 长结果截成头尾两段，最近 8 条不动；不改 system、user、assistant |
+| 缓存 | 开 | 非流式请求按请求体哈希命中，第二次不打上游；流式请求原样转发 |
+
+然后在 DSH 里加一个 OpenAI 兼容 provider，`baseUrl` 填 `http://127.0.0.1:8787/v1`，key 随便填（代理不校验），模型名照上游写。不想要了就删掉这个 provider，DSH 本身没被改。
+
+边界：代理只监听本机、不记录请求正文、不落盘 Authorization；裁剪会改变模型看到的历史，重要会话可以先 `--no-trim` 只开缓存。健康检查：`curl http://127.0.0.1:8787/agh-lite/health`。
+
+不想走代理时，库模式仍然可用：`cache` / `pack` / `budget` 接进自己的调用脚本，命中缓存不重复付费、超预算直接拒绝。
 
 ## 与 AGH 的关系
 
@@ -230,6 +249,7 @@ agh-lite journal verify
 
 - **不代理请求**。DSH 发行版没有公开的请求钩子，硬接只能改内核或 MITM；审计离线做，其余能力做成库。
 - **费用默认是估算**。价格表在 `pricing.py`，未命中的模型不计价，会列进 `unknown_models`；有 `.dshw-usage.json` 时可以拉真实账本对账，但两边口径不同，差额不等于账错。
+- **代理会改请求**。裁剪只动较早的 tool 结果，但模型看到的历史确实变了；先 `--no-trim` 验证连通，重要会话再决定开不开。
 - **缓存只认同一个请求**。输入逐字节规范化后一致才命中，不做语义匹配；有副作用的工具链不该缓存。
 - **哈希链只防「改一条看不出来」**，防不了有写权限的人重写整条链。
 - **预算只维护一个窗口**，日/月边界由调用方重置；不承诺分布式 exactly-once。
@@ -252,6 +272,7 @@ src/agh_lite/
   sessions.py   DSH 会话解析（含 zstd 多帧）
   pricing.py    模型价格表与费用估算
   usage.py      DSH 真实用量账本对账
+  proxy.py      本地 OpenAI 兼容代理（裁剪 + 缓存）
   audit.py      离线审计规则与报告
   cli.py        命令行入口
 ```
