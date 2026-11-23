@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 (2026-11-24)
+
+### 新增
+
+- 前缀稳定性检测：记录每个会话的 `header_changes` / `system_changes`（工具集、system prompt 指纹变化），审计新增 `unstable_prefix` 规则——回答「缓存为什么打不中」。
+- 报告新增「按 workspace」：按会话 `cwd` 聚合 token 与费用，`--format json` 同步输出 `workspaces`。
+
 ## 0.4.0 (2026-11-24)
 
 ### 新增
