@@ -85,6 +85,7 @@ class ProxyLedgerStats:
     tokens_saved_trim: int = 0
     cost_saved_usd: float | None = None
     unpriced_models: list[str] = field(default_factory=list)
+    by_model: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -96,6 +97,13 @@ class ProxyLedgerStats:
             "tokens_saved_trim": self.tokens_saved_trim,
             "cost_saved_usd": None if self.cost_saved_usd is None else round(self.cost_saved_usd, 4),
             "unpriced_models": self.unpriced_models,
+            "by_model": {
+                model: {
+                    **{key: int(value) for key, value in row.items() if key != "cost_usd"},
+                    "cost_usd": round(row["cost_usd"], 4),
+                }
+                for model, row in sorted(self.by_model.items())
+            },
         }
 
 
@@ -149,19 +157,32 @@ def summarize_ledger(
         stats.tokens_saved_trim += trim_tokens
         model = str(item.get("model") or "")
         price = lookup_price(model, prices) if model else None
+        row = stats.by_model.setdefault(
+            model or "unknown",
+            {"requests": 0.0, "cache_hits": 0.0, "tokens_saved": 0.0, "cost_usd": 0.0},
+        )
+        row["requests"] += 1
         if item.get("cache_hit"):
             stats.cache_hits += 1
+            row["cache_hits"] += 1
             prompt = int(item.get("prompt_tokens", 0) or 0)
             completion = int(item.get("completion_tokens", 0) or 0)
-            stats.tokens_saved_cache += prompt + completion
+            saved = prompt + completion
+            stats.tokens_saved_cache += saved
+            row["tokens_saved"] += saved
             if price is not None:
-                cost += (prompt * price.input_per_m + completion * price.output_per_m) / 1_000_000
+                amount = (prompt * price.input_per_m + completion * price.output_per_m) / 1_000_000
+                cost += amount
+                row["cost_usd"] += amount
                 priced = True
             elif model:
                 unpriced.add(model)
         elif trim_tokens:
+            row["tokens_saved"] += trim_tokens
             if price is not None:
-                cost += trim_tokens * price.input_per_m / 1_000_000
+                amount = trim_tokens * price.input_per_m / 1_000_000
+                cost += amount
+                row["cost_usd"] += amount
                 priced = True
             elif model:
                 unpriced.add(model)

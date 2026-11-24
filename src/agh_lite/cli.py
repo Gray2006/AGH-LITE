@@ -228,6 +228,15 @@ def _cmd_proxy(args: argparse.Namespace) -> int:
             print(f"折合费用：约 {format_usd(stats.cost_saved_usd)}")
         if stats.unpriced_models:
             print(f"未定价模型：{', '.join(stats.unpriced_models)}")
+        if stats.by_model:
+            print("按模型：")
+            for model, row in sorted(
+                stats.by_model.items(), key=lambda item: item[1]["tokens_saved"], reverse=True
+            ):
+                print(
+                    f"  {model}: 请求 {int(row['requests'])}，命中 {int(row['cache_hits'])}，"
+                    f"省 {format_tokens(int(row['tokens_saved']))} tokens"
+                )
         return 0
     if not args.upstream:
         print("需要 --upstream，或用 --stats 查看账本", file=sys.stderr)
@@ -249,6 +258,13 @@ def _cmd_proxy(args: argparse.Namespace) -> int:
         print(f"参数不对：{exc}", file=sys.stderr)
         return 2
     serve(config)
+    return 0
+
+
+def _cmd_ui(args: argparse.Namespace) -> int:
+    from .ui import serve
+
+    serve(home=args.home, port=args.port, open_browser=not args.no_browser)
     return 0
 
 
@@ -317,6 +333,12 @@ def build_parser() -> argparse.ArgumentParser:
     proxy.add_argument("--stats", action="store_true", help="不启动服务，只汇总账本里的节省量")
     proxy.add_argument("--json", action="store_true", help="配合 --stats 输出 JSON")
     proxy.set_defaults(func=_cmd_proxy)
+
+    ui = sub.add_parser("ui", help="打开本地面板：扫描、报告、代理开关")
+    ui.add_argument("--home", help="DSH 数据目录（默认自动找）")
+    ui.add_argument("--port", type=int, default=8790)
+    ui.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
+    ui.set_defaults(func=_cmd_ui)
 
     return parser
 

@@ -186,9 +186,13 @@ class SessionRecord:
     header_changes: int = 0
     system_changes: int = 0
     system_volatile_changes: int = 0
+    tool_changes: int = 0
+    tool_added: Counter[str] = field(default_factory=Counter)
+    tool_removed: Counter[str] = field(default_factory=Counter)
     _last_header_hash: str = field(default="", repr=False)
     _last_system_hash: str = field(default="", repr=False)
     _last_system_raw_hash: str = field(default="", repr=False)
+    _last_tool_names: frozenset[str] = field(default_factory=frozenset, repr=False)
     profile: TokenProfile = DEFAULT_PROFILE
 
     # ------------------------------------------------------------ 派生量
@@ -454,6 +458,14 @@ def load_session(path: str | Path, *, profile: TokenProfile | None = None) -> Se
             if record._last_header_hash and fingerprint != record._last_header_hash:
                 record.header_changes += 1
             record._last_header_hash = fingerprint
+            names = frozenset(record.tool_names)
+            if record._last_tool_names and names != record._last_tool_names:
+                record.tool_changes += 1
+                for name in names - record._last_tool_names:
+                    record.tool_added[name] += 1
+                for name in record._last_tool_names - names:
+                    record.tool_removed[name] += 1
+            record._last_tool_names = names
         elif event_type == "request/context":
             window = data.get("contextWindow")
             if isinstance(window, (int, float)):

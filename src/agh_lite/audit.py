@@ -833,6 +833,19 @@ def audit_records(
     if unstable_tools:
         tools_tokens = sum(record.prompt_tokens for record in unstable_tools)
         worst = sorted(unstable_tools, key=lambda record: record.prompt_tokens, reverse=True)[:3]
+        added: Counter[str] = Counter()
+        removed: Counter[str] = Counter()
+        for record in unstable_tools:
+            added.update(record.tool_added)
+            removed.update(record.tool_removed)
+        changed_tools = sorted(
+            set(added) | set(removed),
+            key=lambda item: added[item] + removed[item],
+            reverse=True,
+        )[:5]
+        tool_evidence = [
+            f"工具 {name} +{added[name]}/-{removed[name]}" for name in changed_tools
+        ]
         findings.append(
             Finding(
                 code="unstable_tools",
@@ -853,7 +866,8 @@ def audit_records(
                     f"会话 {_short(record.session_id)}：{len(record.steps)} 步，"
                     f"header 变 {record.header_changes} 次，命中 {record.cache_hit_ratio:.0%}"
                     for record in worst
-                ],
+                ]
+                + tool_evidence,
             )
         )
 

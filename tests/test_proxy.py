@@ -181,6 +181,8 @@ def test_summarize_ledger_prices_savings() -> None:
     assert summary.tokens_saved_trim == 1_000
     # 缓存：1M 输入 0.55 + 1M 输出 1.70；裁剪：1K 输入 0.55/1M
     assert summary.cost_saved_usd == pytest.approx(2.25 + 0.00055)
+    assert summary.by_model["deepseek-v4"]["requests"] == 2
+    assert summary.by_model["deepseek-v4"]["tokens_saved"] == 2_001_000
 
 
 def test_proxy_streams_and_does_not_cache(proxy) -> None:
