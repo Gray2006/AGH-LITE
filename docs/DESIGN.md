@@ -112,6 +112,13 @@ system 指纹先做一次归一化：丢掉整行时间/环境快照，抹掉行
 
 报告默认中文 Markdown；`--format json` 给脚本。
 
+### 解析缓存
+
+`audit_home` 默认把解析好的 `SessionRecord` pickle 到 `$DSH_HOME/agh-lite-session-cache`，
+键是「路径 + mtime + 大小 + 缓存版本」。冷扫 241MB 约 28 秒，热扫 0.5 秒。
+`--no-parse-cache` 关闭；缓存版本随 `SessionRecord` 结构变化手动加一。
+`workers=N` 可并行，但线程受 GIL 限制，实测更慢，默认串行。
+
 ### `proxy.py`
 
 为什么做：DSH 的插件扩展点只能改路由（`agent/request` 返回 `LlmCallConfig`），改不了完整 prompt；
@@ -129,11 +136,19 @@ DSH provider baseUrl -> http://127.0.0.1:8787/v1 -> 上游
 刻意不做：不改 system/user/assistant、不做语义缓存、不落盘 Authorization、不监听外网。
 代价是模型看到的历史确实变了，所以默认只裁 tool 结果，并给 `--no-trim` 留退路。
 
+账本超过 5MB 自动转成 `.1`（旧的 `.1` 覆盖），避免长期运行无限增长。
+
 ### `usage.py`
 
 读 `$DSH_HOME/.dshw-usage.json` 的 `events`：每条带 `ts / day / model / cost / tokens`。
 只做聚合（按天、按模型、总量），不做二次换算；坏事件跳过，字段缺失不猜。
 审计把估算费用和它对账，差额单独列出——两边计费口径不同，差额不等于账错。
+
+### `ui.py` / `doctor.py`
+
+- `ui.py` 只监听 127.0.0.1：一页四块（扫描、报告、代理、自检），页面在 `ui_page.py`，无前端依赖。
+- `doctor.py` 把「跑不起来」变成人话：Python 版本、DSH 目录、会话目录、zstandard、代理端口占用。
+- 面板的扫描和 CLI 共用 `audit_home`，所以解析缓存、`--days` 口径完全一致。
 
 ## 为什么不是内核补丁
 
