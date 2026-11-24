@@ -43,7 +43,8 @@ def test_page_is_served(ui) -> None:
     assert "扫描我的会话" in page
     assert "prefers-color-scheme" in page
     assert "spinner" in page
-    assert "0.15.0" in page or "0.16.0" in page
+    assert "{{version}}" not in page
+    assert "v0." in page
 
 
 def test_status_and_audit(ui) -> None:
