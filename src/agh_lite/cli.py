@@ -264,8 +264,21 @@ def _cmd_proxy(args: argparse.Namespace) -> int:
 def _cmd_ui(args: argparse.Namespace) -> int:
     from .ui import serve
 
-    serve(home=args.home, port=args.port, open_browser=not args.no_browser)
+    serve(
+        home=args.home,
+        port=args.port,
+        proxy_port=args.proxy_port,
+        open_browser=not args.no_browser,
+    )
     return 0
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    from .doctor import format_checks, run_checks
+
+    checks = run_checks(args.home, proxy_port=args.proxy_port)
+    print(format_checks(checks))
+    return 1 if any(check.status == "fail" for check in checks) else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -337,8 +350,14 @@ def build_parser() -> argparse.ArgumentParser:
     ui = sub.add_parser("ui", help="打开本地面板：扫描、报告、代理开关")
     ui.add_argument("--home", help="DSH 数据目录（默认自动找）")
     ui.add_argument("--port", type=int, default=8790)
+    ui.add_argument("--proxy-port", type=int, default=8787, help="面板启动代理时用的端口")
     ui.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
     ui.set_defaults(func=_cmd_ui)
+
+    doctor = sub.add_parser("doctor", help="环境自检：目录、依赖、端口")
+    doctor.add_argument("--home", help="DSH 数据目录（默认自动找）")
+    doctor.add_argument("--proxy-port", type=int, default=8787)
+    doctor.set_defaults(func=_cmd_doctor)
 
     return parser
 

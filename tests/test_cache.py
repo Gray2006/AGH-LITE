@@ -31,6 +31,25 @@ def test_get_missing_returns_none(cache: ResponseCache) -> None:
     assert cache.get("nope") is None
 
 
+def test_max_entries_evicts_oldest(tmp_path) -> None:
+    tick = [0]
+
+    def clock() -> int:
+        tick[0] += 1
+        return tick[0]
+
+    limited = ResponseCache(tmp_path / "limited.sqlite", max_entries=2, clock=clock)
+    try:
+        for index in range(3):
+            key = limited.make_key("m", [{"role": "user", "content": f"x{index}"}])
+            limited.put(key, {"n": index})
+        assert limited.stats().entries == 2
+        oldest = limited.make_key("m", [{"role": "user", "content": "x0"}])
+        assert limited.get(oldest) is None
+    finally:
+        limited.close()
+
+
 def test_stats_count_hits_and_saved_tokens(cache: ResponseCache) -> None:
     key = cache.make_key("m", [{"role": "user", "content": "x"}])
     cache.put(key, "ok", model="m", prompt_tokens=100, completion_tokens=20)

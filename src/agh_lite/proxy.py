@@ -55,6 +55,7 @@ class ProxyConfig:
     cache: bool = True
     cache_path: str | Path | None = None
     cache_ttl_seconds: int = 7 * 24 * 3600
+    cache_max_entries: int | None = 5_000
     ledger: bool = True
     ledger_path: str | Path | None = None
     timeout: float = 300.0
@@ -315,6 +316,14 @@ def _with_stream_usage(body: bytes) -> bytes:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
+def _target_path(base_path: str, request_path: str) -> str:
+    """上游 base 自带路径前缀时，别把请求里的同名前缀再拼一遍。"""
+    path = request_path if request_path.startswith("/") else f"/{request_path}"
+    if base_path and (path == base_path or path.startswith(base_path + "/")):
+        return path
+    return f"{base_path}{path}" if base_path else path
+
+
 class _ProxyServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -437,8 +446,7 @@ class _Handler(BaseHTTPRequestHandler):
         config = self.server.config
         parts = urlsplit(config.upstream)
         path = self.path if self.path.startswith("/") else f"/{self.path}"
-        base_path = parts.path.rstrip("/")
-        target = f"{base_path}{path}" if base_path else path
+        target = _target_path(parts.path.rstrip("/"), path)
         headers = {
             key: value
             for key, value in self.headers.items()
@@ -552,7 +560,11 @@ def build_server(config: ProxyConfig) -> _ProxyServer:
     cache: ResponseCache | None = None
     if config.cache:
         path = config.cache_path or (Path.home() / ".dsh" / "agh-lite-proxy-cache.sqlite")
-        cache = ResponseCache(path, ttl_seconds=config.cache_ttl_seconds)
+        cache = ResponseCache(
+            path,
+            ttl_seconds=config.cache_ttl_seconds,
+            max_entries=config.cache_max_entries,
+        )
     return _ProxyServer(config, cache)
 
 

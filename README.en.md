@@ -46,6 +46,12 @@ pip install 'agh-lite[dsh]'
 pip install -e '.[dev]'
 ```
 
+Run the self-check right after installing; it says what is wrong in plain words:
+
+```bash
+agh-lite doctor
+```
+
 ## Usage
 
 ### Panel (for people who do not want to remember commands)
@@ -60,7 +66,7 @@ Opens `http://127.0.0.1:8790/` with three things:
 - **Generate HTML report**: open it right away (daily token bars and a cost line)
 - **Start the local proxy**: paste the upstream URL, start/stop with one click; request count, cache hits, trims shown live
 
-Binds to localhost only. `--port` to change the port, `--no-browser` to skip opening a browser.
+Binds to localhost only. `--port` for the panel, `--proxy-port` for the proxy, `--no-browser` to skip opening a browser.
 
 No terminal: double-click `scripts/agh-lite-ui.cmd` on Windows, or run `scripts/agh-lite-ui.sh` on macOS/Linux.
 
@@ -310,6 +316,7 @@ src/agh_lite/
   usage.py      reconcile against DSH's real usage ledger
   proxy.py      local OpenAI-compatible proxy (trim + cache)
   ui.py         local panel
+  doctor.py     environment self-check
   audit.py      offline audit rules and report
   cli.py        command-line entry
 ```

@@ -46,6 +46,12 @@ pip install 'agh-lite[dsh]'
 pip install -e '.[dev]'
 ```
 
+装完先自检，有问题它会直接说：
+
+```bash
+agh-lite doctor
+```
+
 ## 用
 
 ### 面板（不想记命令就用这个）
@@ -60,7 +66,7 @@ agh-lite ui
 - **生成 HTML 报告**：生成后可直接打开（含按天 tokens 柱状图与费用折线）
 - **启动本地代理**：填上游地址，一键启停；页面上显示请求数、缓存命中、裁剪次数
 
-只监听本机，不对外网开放。`--port` 换端口，`--no-browser` 不自动开浏览器。
+只监听本机，不对外网开放。`--port` 换面板端口，`--proxy-port` 换代理端口，`--no-browser` 不自动开浏览器。
 
 不想开终端：Windows 双击 `scripts/agh-lite-ui.cmd`，macOS/Linux 跑 `scripts/agh-lite-ui.sh`。
 
@@ -310,6 +316,7 @@ src/agh_lite/
   usage.py      DSH 真实用量账本对账
   proxy.py      本地 OpenAI 兼容代理（裁剪 + 缓存）
   ui.py         本地面板
+  doctor.py     环境自检
   audit.py      离线审计规则与报告
   cli.py        命令行入口
 ```

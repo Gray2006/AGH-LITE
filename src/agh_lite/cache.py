@@ -72,13 +72,17 @@ class ResponseCache:
         path: str | Path,
         *,
         ttl_seconds: int | None = 7 * 24 * 3600,
+        max_entries: int | None = None,
         clock: Any = None,
     ) -> None:
         if ttl_seconds is not None and ttl_seconds <= 0:
             raise ValueError("ttl_seconds 必须为正或 None")
+        if max_entries is not None and max_entries < 1:
+            raise ValueError("max_entries 必须为正或 None")
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.ttl_seconds = ttl_seconds
+        self.max_entries = max_entries
         self._clock = clock or (lambda: int(time.time()))
         self._db = sqlite3.connect(str(self.path), timeout=10, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
@@ -200,7 +204,22 @@ class ResponseCache:
                     int(self._clock()),
                 ),
             )
+            self._evict()
         return cursor.rowcount > 0
+
+    def _evict(self) -> None:
+        """超过 max_entries 时，先删最久没命中的。调用方需已开事务。"""
+        if self.max_entries is None:
+            return
+        row = self._db.execute("SELECT COUNT(*) AS n FROM responses").fetchone()
+        excess = int(row["n"]) - self.max_entries
+        if excess <= 0:
+            return
+        self._db.execute(
+            "DELETE FROM responses WHERE key IN ("
+            "SELECT key FROM responses ORDER BY COALESCE(last_hit_at, created_at) ASC LIMIT ?)",
+            (excess,),
+        )
 
     def stats(self, prices: Mapping[str, ModelPrice] | None = None) -> CacheStats:
         row = self._db.execute(

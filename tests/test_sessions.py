@@ -179,6 +179,12 @@ def test_header_and_system_changes_are_counted(write_session, events) -> None:
     assert record.system_changes == 1
 
 
+def test_system_tokens_use_cjk_profile(write_session) -> None:
+    record = load_session(write_session())
+    # 合成会话的 system 是中文，按 CJK 口径应明显高于 chars/3.6
+    assert record.system_tokens > record.system_chars / 3.6
+
+
 def test_volatile_system_changes_are_separated(write_session, events) -> None:
     base = events[2]["data"]["message"]["content"]
     extra = list(events)

@@ -171,6 +171,7 @@ class SessionRecord:
     ended_at: int = 0
     context_window: int | None = None
     system_chars: int = 0
+    system_tokens_est: int = 0
     tool_schema_chars: int = 0
     tool_names: list[str] = field(default_factory=list)
     steps: list[StepUsage] = field(default_factory=list)
@@ -233,6 +234,8 @@ class SessionRecord:
 
     @property
     def system_tokens(self) -> int:
+        if self.system_tokens_est:
+            return self.system_tokens_est
         return max(1, round(self.system_chars / self.profile.ascii_chars_per_token)) if self.system_chars else 0
 
     @property
@@ -482,6 +485,9 @@ def load_session(path: str | Path, *, profile: TokenProfile | None = None) -> Se
             # 真实 DSH 每一步都会写一条 system/message，取最大而不是累加
             record.system_chars = max(record.system_chars, _content_chars(message.get("content")))
             raw_text = _content_text(message.get("content"))
+            record.system_tokens_est = max(
+                record.system_tokens_est, estimate_text_tokens(raw_text, record.profile)
+            )
             raw_hash = _fingerprint(raw_text)
             stable_hash = _fingerprint(_normalize_volatile(raw_text))
             if record._last_system_raw_hash and raw_hash != record._last_system_raw_hash:

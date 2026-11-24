@@ -8,7 +8,21 @@ from typing import ClassVar
 
 import pytest
 
-from agh_lite.proxy import ProxyConfig, build_server, load_ledger, summarize_ledger, trim_messages
+from agh_lite.proxy import (
+    ProxyConfig,
+    _target_path,
+    build_server,
+    load_ledger,
+    summarize_ledger,
+    trim_messages,
+)
+
+
+def test_target_path_does_not_duplicate_prefix() -> None:
+    assert _target_path("", "/v1/chat/completions") == "/v1/chat/completions"
+    assert _target_path("/v1", "/v1/chat/completions") == "/v1/chat/completions"
+    assert _target_path("/api/v1", "/v1/chat/completions") == "/api/v1/v1/chat/completions"
+    assert _target_path("/openai", "/v1/chat") == "/openai/v1/chat"
 
 
 def test_trim_old_tool_result_only() -> None:

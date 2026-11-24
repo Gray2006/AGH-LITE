@@ -81,9 +81,11 @@ async function api(path, body) {
     body: body === undefined ? undefined : JSON.stringify(body)});
   return res.json();
 }
+let proxyUrl = 'http://127.0.0.1:8787/v1';
 async function refresh() {
   const s = await api('/api/status');
   $('home').textContent = s.home;
+  proxyUrl = 'http://127.0.0.1:' + s.proxy.port + '/v1';
   if (s.proxy.running) {
     $('proxyState').textContent = '运行中 ' + s.proxy.url;
     $('proxyState').className = 'ok';
@@ -96,7 +98,11 @@ async function refresh() {
   }
 }
 $('scan').onclick = async () => {
-  $('scan').disabled = true; $('scanState').textContent = '扫描中，十几秒…';
+  $('scan').disabled = true; $('scanState').textContent = '扫描中…';
+  let seconds = 0;
+  const timer = setInterval(() => {
+    seconds += 1; $('scanState').textContent = '扫描中，已用 ' + seconds + ' 秒…';
+  }, 1000);
   try {
     const r = await api('/api/audit', {days: 30});
     $('scanState').textContent = '';
@@ -114,6 +120,7 @@ $('scan').onclick = async () => {
     }
     $('scanResult').innerHTML = html;
   } catch (e) { $('scanState').textContent = '失败：' + e; }
+  clearInterval(timer);
   $('scan').disabled = false;
 };
 $('report').onclick = async () => {
@@ -123,6 +130,7 @@ $('report').onclick = async () => {
   if (r.error) { $('reportState').textContent = r.error; return; }
   $('reportState').textContent = '已生成';
   $('reportResult').innerHTML = '<a href="/report" target="_blank">打开报告</a>';
+  window.open('/report', '_blank');
 };
 $('startProxy').onclick = async () => {
   $('proxyState').textContent = '启动中…';
@@ -132,7 +140,7 @@ $('startProxy').onclick = async () => {
 };
 $('stopProxy').onclick = async () => { await api('/api/proxy/stop', {}); refresh(); };
 $('copyProxy').onclick = async () => {
-  const url = 'http://127.0.0.1:8787/v1';
+  const url = proxyUrl;
   try {
     await navigator.clipboard.writeText(url);
     $('copyProxy').textContent = '已复制';
@@ -149,6 +157,7 @@ refresh();
 class UIState:
     home: Path
     report_path: Path
+    proxy_port: int = 8787
     proxy: Any = None
     proxy_thread: threading.Thread | None = None
     last_audit: dict[str, Any] | None = None
@@ -227,6 +236,7 @@ class _UIHandler(BaseHTTPRequestHandler):
             "home": str(state.home),
             "proxy": {
                 "running": running,
+                "port": state.proxy_port,
                 "url": f"http://127.0.0.1:{state.proxy.server_address[1]}/v1" if running else "",
                 "stats": stats,
             },
@@ -278,10 +288,10 @@ class _UIHandler(BaseHTTPRequestHandler):
         if not upstream:
             return {"error": "先填上游地址"}
         try:
-            config = ProxyConfig(upstream=upstream, port=8787)
+            config = ProxyConfig(upstream=upstream, port=state.proxy_port)
             server = build_server(config)
         except (ValueError, OSError) as exc:
-            return {"error": f"启动失败：{exc}"}
+            return {"error": f"启动失败（端口 {state.proxy_port} 可能被占用）：{exc}"}
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         state.proxy = server
@@ -318,10 +328,16 @@ class _UIServer(ThreadingHTTPServer):
         super().__init__(address, _UIHandler)
 
 
-def serve(*, home: str | Path | None = None, port: int = 8790, open_browser: bool = True) -> None:
+def serve(
+    *,
+    home: str | Path | None = None,
+    port: int = 8790,
+    proxy_port: int = 8787,
+    open_browser: bool = True,
+) -> None:
     resolved = resolve_dsh_home(home)
     report_path = Path.home() / ".dsh" / "agh-lite-report.html"
-    state = UIState(home=resolved, report_path=report_path)
+    state = UIState(home=resolved, report_path=report_path, proxy_port=proxy_port)
     server = _UIServer(("127.0.0.1", port), state)
     url = f"http://127.0.0.1:{server.server_address[1]}/"
     print(f"agh-lite 面板：{url}")
