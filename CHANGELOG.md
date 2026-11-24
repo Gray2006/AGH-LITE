@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.1 (2026-11-24)
+
+### 修复
+
+- 0.14.0 的 `pyproject.toml` 同时声明 SPDX license 与 MIT classifier，新版 setuptools 构建失败；已移除冲突的 classifier。
+
 ## 0.14.0 (2026-11-24)
 
 ### 新增
