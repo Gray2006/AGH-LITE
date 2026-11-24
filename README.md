@@ -52,6 +52,8 @@ pip install -e '.[dev]'
 agh-lite doctor
 ```
 
+不想用命令行？装 DSH 插件版 [agh-lite-plugin](https://github.com/Gray2006/agh-lite-plugin)，在 DSH 侧边栏里点按钮。
+
 ## 用
 
 ### 面板（不想记命令就用这个）

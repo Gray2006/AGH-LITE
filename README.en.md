@@ -52,6 +52,8 @@ Run the self-check right after installing; it says what is wrong in plain words:
 agh-lite doctor
 ```
 
+Prefer no terminal? Install the DSH plugin [agh-lite-plugin](https://github.com/Gray2006/agh-lite-plugin) and use buttons in the DSH sidebar.
+
 ## Usage
 
 ### Panel (for people who do not want to remember commands)
