@@ -524,6 +524,30 @@ class AuditReport:
                 f'aria-label="按天 tokens 用量">{"".join(bars)}</svg>'
             )
 
+        if self.usage is not None and self.usage.by_day:
+            days = sorted(self.usage.by_day.items())[-14:]
+            max_cost = max(cost for _, cost in days) or 1.0
+            width, height, pad = 720, 120, 24
+            step = (width - 2 * pad) / max(1, len(days) - 1)
+            points: list[tuple[float, float, str, float]] = []
+            for index, (day, cost) in enumerate(days):
+                x = pad + index * step
+                y = height - pad - (height - 2 * pad) * cost / max_cost
+                points.append((x, y, day, cost))
+            polyline = " ".join(f"{x:.1f},{y:.1f}" for x, y, _, _ in points)
+            dots = "".join(
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.5" fill="#cf222e">'
+                f"<title>{esc(day)}: {format_usd(cost)}</title></circle>"
+                for x, y, day, cost in points
+            )
+            rows.append(
+                "<h3>按天费用</h3>"
+                f'<svg viewBox="0 0 {width} {height}" width="100%" role="img" '
+                f'aria-label="按天费用">'
+                f'<polyline points="{polyline}" fill="none" stroke="#cf222e" stroke-width="2"/>'
+                f"{dots}</svg>"
+            )
+
         if self.findings:
             cards = []
             for finding in self.findings[:top]:

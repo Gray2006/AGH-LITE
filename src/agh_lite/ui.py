@@ -107,6 +107,10 @@ $('scan').onclick = async () => {
       html += '<ul>' + r.findings.map(f => '<li>[' + f.severity + '] ' + f.title +
         '：约 ' + f.estimated + '</li>').join('') + '</ul>';
     }
+    if (r.workspaces && r.workspaces.length) {
+      html += '<p class="muted">最烧 token 的项目：</p><ul>' + r.workspaces.map(w =>
+        '<li>' + w.name + '：' + w.sessions + ' 个会话 · ' + w.tokens + '</li>').join('') + '</ul>';
+    }
     $('scanResult').innerHTML = html;
   } catch (e) { $('scanState').textContent = '失败：' + e; }
   $('scan').disabled = false;
@@ -243,6 +247,14 @@ class _UIHandler(BaseHTTPRequestHandler):
                     "estimated": format_tokens(finding.estimated_tokens),
                 }
                 for finding in report.findings[:5]
+            ],
+            "workspaces": [
+                {
+                    "name": row["workspace"],
+                    "sessions": row["sessions"],
+                    "tokens": format_tokens(row["tokens"]),
+                }
+                for row in report.workspace_rows(5)
             ],
         }
         self.server.state.last_audit = summary

@@ -192,6 +192,8 @@ def test_usage_reconciliation(tmp_path, write_session) -> None:
     page = report.render_html()
     assert "<svg" in page
     assert "按天用量" in page
+    assert "按天费用" in page
+    assert "<polyline" in page
 
 
 def test_usage_can_be_disabled(tmp_path, write_session) -> None:

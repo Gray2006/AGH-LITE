@@ -53,6 +53,7 @@ def test_status_and_audit(ui) -> None:
     assert result["sessions"] == 1
     assert "tokens" in result["tokens"] or result["tokens"]
     assert isinstance(result["findings"], list)
+    assert isinstance(result["workspaces"], list)
 
 
 def test_report_endpoint_writes_html(ui) -> None:

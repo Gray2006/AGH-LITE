@@ -56,11 +56,13 @@ agh-lite ui
 
 Opens `http://127.0.0.1:8790/` with three things:
 
-- **Scan my sessions**: one click; a dozen seconds later you get sessions, tokens, estimated cost, savings ceiling, and the top fixes
-- **Generate HTML report**: open it right away
+- **Scan my sessions**: one click; a dozen seconds later you get sessions, tokens, estimated cost, savings ceiling, the top fixes, and the most expensive projects
+- **Generate HTML report**: open it right away (daily token bars and a cost line)
 - **Start the local proxy**: paste the upstream URL, start/stop with one click; request count, cache hits, trims shown live
 
 Binds to localhost only. `--port` to change the port, `--no-browser` to skip opening a browser.
+
+No terminal: double-click `scripts/agh-lite-ui.cmd` on Windows, or run `scripts/agh-lite-ui.sh` on macOS/Linux.
 
 ### Audit
 
