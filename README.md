@@ -36,13 +36,13 @@ agh-lite 把这件事拆开：先告诉你钱花在哪，再把「怎么少花�
 需要 Python 3.12+。
 
 ```bash
-# 只审计明文会话，不需要任何依赖
-pip install -e .
+# 从 PyPI（发布后）
+pip install agh-lite
 
 # 要读 DSH 的 .jsonl.zstd 会话（推荐）
-pip install -e '.[dsh]'
+pip install 'agh-lite[dsh]'
 
-# 开发
+# 从源码开发
 pip install -e '.[dev]'
 ```
 
@@ -283,7 +283,7 @@ agh-lite proxy --stats --json
 
 ## 已知边界
 
-- **不代理请求**。DSH 发行版没有公开的请求钩子，硬接只能改内核或 MITM；审计离线做，其余能力做成库。
+- **默认不代理请求**。DSH 发行版没有公开的请求钩子，硬接只能改内核或 MITM；审计离线做，其余能力做成库。想要自动省，显式启动 `agh-lite proxy` 并把 provider 指过来。
 - **费用默认是估算**。价格表在 `pricing.py`，未命中的模型不计价，会列进 `unknown_models`；有 `.dshw-usage.json` 时可以拉真实账本对账，但两边口径不同，差额不等于账错。
 - **代理会改请求**。裁剪只动较早的 tool 结果，但模型看到的历史确实变了；先 `--no-trim` 验证连通，重要会话再决定开不开。
 - **缓存只认同一个请求**。输入逐字节规范化后一致才命中，不做语义匹配；有副作用的工具链不该缓存。
@@ -309,11 +309,22 @@ src/agh_lite/
   pricing.py    模型价格表与费用估算
   usage.py      DSH 真实用量账本对账
   proxy.py      本地 OpenAI 兼容代理（裁剪 + 缓存）
+  ui.py         本地面板
   audit.py      离线审计规则与报告
   cli.py        命令行入口
 ```
 
 更细的设计取舍见 [docs/DESIGN.md](docs/DESIGN.md)。
+
+### 发布（维护者）
+
+```bash
+python -m build          # 产出 dist/ 下的 sdist 与 wheel
+```
+
+PyPI 上传走 GitHub Actions 的 `publish` workflow（手动触发，Trusted Publishing，不需要 token）：
+先在 PyPI 给项目配置 Trusted Publisher（仓库 `Gray2006/AGH-LITE`、workflow `publish.yml`、environment `pypi`），
+再在 Actions 里点 Run workflow；勾选 TestPyPI 可先发测试源。
 
 ## 作者
 

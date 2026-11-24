@@ -3,7 +3,8 @@ name = "agh-lite"
 version = "0.13.0"
 description = "AGH Lite: 个人版 Token 经济工具箱——审计 DSH 会话、打包上下文、缓存复用、预算硬闸门。"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 authors = [{ name = "Gray2006", email = "132803601+Gray2006@users.noreply.github.com" }]
 keywords = ["tokens", "context", "cache", "budget", "dsh", "llm", "personal"]

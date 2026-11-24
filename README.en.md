@@ -36,13 +36,13 @@ agh-lite splits that into two pieces: show where the money goes, then make "spen
 Python 3.12+.
 
 ```bash
-# plain-text sessions only, no dependencies
-pip install -e .
+# from PyPI (once published)
+pip install agh-lite
 
 # read DSH .jsonl.zstd sessions (recommended)
-pip install -e '.[dsh]'
+pip install 'agh-lite[dsh]'
 
-# development
+# from source for development
 pip install -e '.[dev]'
 ```
 
@@ -283,7 +283,7 @@ Without the proxy, the libraries still work: wire `cache` / `pack` / `budget` in
 
 ## Known limits
 
-- **No request proxying.** DSH has no public pre-request hook; intercepting means patching the kernel or MITM. The audit is offline, the rest are libraries.
+- **No request proxying by default.** DSH has no public pre-request hook; intercepting means patching the kernel or MITM. The audit is offline, the rest are libraries. For automatic saving, explicitly start `agh-lite proxy` and point the provider at it.
 - **Costs are estimates by default.** The price table lives in `pricing.py`; unknown models are left unpriced and listed in `unknown_models`. With `.dshw-usage.json` the audit reconciles against the real ledger, but the two count differently; a delta does not mean the bill is wrong.
 - **The proxy rewrites requests.** Trimming only touches older tool results, but the history the model sees does change; verify with `--no-trim` first.
 - **The cache matches one exact request.** Inputs must be byte-identical after normalization; no semantic matching. Do not cache side-effecting tool chains.
@@ -309,11 +309,22 @@ src/agh_lite/
   pricing.py    model price table and cost estimation
   usage.py      reconcile against DSH's real usage ledger
   proxy.py      local OpenAI-compatible proxy (trim + cache)
+  ui.py         local panel
   audit.py      offline audit rules and report
   cli.py        command-line entry
 ```
 
 Design notes: [docs/DESIGN.md](docs/DESIGN.md).
+
+### Publishing (maintainers)
+
+```bash
+python -m build          # sdist and wheel under dist/
+```
+
+Uploads go through the `publish` GitHub Actions workflow (manual dispatch, Trusted Publishing, no token):
+configure a Trusted Publisher on PyPI for `Gray2006/AGH-LITE`, workflow `publish.yml`, environment `pypi`,
+then run the workflow; tick TestPyPI to try the test index first.
 
 ## Author
 

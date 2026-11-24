@@ -60,6 +60,7 @@ pre{background:#f6f8fa;padding:.6rem;border-radius:6px;overflow:auto;font-size:.
   <div class="row" style="margin-top:.6rem">
     <button id="startProxy">启动代理</button>
     <button id="stopProxy" class="ghost">停止</button>
+    <button id="copyProxy" class="ghost">复制地址</button>
     <span id="proxyState" class="muted"></span>
   </div>
   <div id="proxyInfo"></div>
@@ -130,6 +131,16 @@ $('startProxy').onclick = async () => {
   refresh();
 };
 $('stopProxy').onclick = async () => { await api('/api/proxy/stop', {}); refresh(); };
+$('copyProxy').onclick = async () => {
+  const url = 'http://127.0.0.1:8787/v1';
+  try {
+    await navigator.clipboard.writeText(url);
+    $('copyProxy').textContent = '已复制';
+  } catch (e) {
+    window.prompt('复制这个地址', url);
+  }
+  setTimeout(() => { $('copyProxy').textContent = '复制地址'; }, 1500);
+};
 refresh();
 </script></body></html>"""
 
