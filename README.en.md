@@ -82,6 +82,9 @@ agh-lite audit --days 7 --limit 30 --out runs/audit.md
 # machine-readable
 agh-lite audit --format json
 
+# parsed sessions are cached under $DSH_HOME/agh-lite-session-cache; second scan finishes in under a second
+agh-lite audit --no-parse-cache   # opt out of the cache
+
 # self-contained HTML for sharing or archiving
 agh-lite audit --format html --out runs/audit.html
 
@@ -295,6 +298,7 @@ Without the proxy, the libraries still work: wire `cache` / `pack` / `budget` in
 - **The cache matches one exact request.** Inputs must be byte-identical after normalization; no semantic matching. Do not cache side-effecting tool chains.
 - **The hash chain catches tampering with one entry**, not a full rewrite by someone with write access.
 - **The budget keeps one window.** Daily/monthly resets are the caller's job; no distributed exactly-once.
+- **The audit writes a parse cache.** Sessions are read-only; parsed results live in `$DSH_HOME/agh-lite-session-cache` keyed by mtime/size; `--no-parse-cache` opts out.
 - **Audit reports are not published.** Real reports contain live session statistics and stay local; the repo only carries aggregate numbers.
 
 ## Development

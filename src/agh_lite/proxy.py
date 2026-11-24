@@ -58,6 +58,7 @@ class ProxyConfig:
     cache_max_entries: int | None = 5_000
     ledger: bool = True
     ledger_path: str | Path | None = None
+    ledger_max_bytes: int = 5 * 1024 * 1024
     timeout: float = 300.0
 
     def __post_init__(self) -> None:
@@ -324,6 +325,19 @@ def _target_path(base_path: str, request_path: str) -> str:
     return f"{base_path}{path}" if base_path else path
 
 
+def _rotate_ledger(path: Path, max_bytes: int) -> None:
+    """账本只追加会无限长；超过上限就转成 .1，旧的 .1 直接覆盖。"""
+    if max_bytes <= 0:
+        return
+    try:
+        if path.is_file() and path.stat().st_size >= max_bytes:
+            backup = path.with_name(path.name + ".1")
+            backup.unlink(missing_ok=True)
+            path.replace(backup)
+    except OSError:
+        return
+
+
 class _ProxyServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -342,8 +356,10 @@ class _ProxyServer(ThreadingHTTPServer):
         path = self.config.ledger_path or (Path.home() / ".dsh" / "agh-lite-proxy.jsonl")
         try:
             with self._ledger_lock:
-                Path(path).expanduser().parent.mkdir(parents=True, exist_ok=True)
-                with Path(path).expanduser().open("a", encoding="utf-8") as handle:
+                target = Path(path).expanduser()
+                target.parent.mkdir(parents=True, exist_ok=True)
+                _rotate_ledger(target, self.config.ledger_max_bytes)
+                with target.open("a", encoding="utf-8") as handle:
                     handle.write(json.dumps(record, ensure_ascii=False) + "\n")
         except OSError:
             pass

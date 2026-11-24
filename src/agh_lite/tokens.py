@@ -8,6 +8,7 @@ DSH 会话里记录的是权威用量（``usage.inputTokens`` 等）；估算只
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -28,6 +29,14 @@ _CJK_RANGES: tuple[tuple[int, int], ...] = (
 
 def _is_cjk(code: int) -> bool:
     return any(lo <= code <= hi for lo, hi in _CJK_RANGES)
+
+
+_CJK_PATTERN = re.compile("[" + "".join(f"\\U{lo:08X}-\\U{hi:08X}" for lo, hi in _CJK_RANGES) + "]")
+
+
+def _count_cjk(text: str) -> int:
+    """用正则让 C 层扫一遍，比逐字符 ord 快一个数量级。"""
+    return sum(len(match) for match in _CJK_PATTERN.findall(text))
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,15 +61,10 @@ class TokenProfile:
         """估算一段文本的 token 数；空文本为 0。"""
         if not text:
             return 0
-        cjk = ascii_chars = other = 0
-        for char in text:
-            code = ord(char)
-            if code < 128:
-                ascii_chars += 1
-            elif _is_cjk(code):
-                cjk += 1
-            else:
-                other += 1
+        non_ascii = len(text) - len(text.encode("ascii", "ignore"))
+        cjk = _count_cjk(text)
+        ascii_chars = len(text) - non_ascii
+        other = non_ascii - cjk
         tokens = (
             cjk / self.cjk_chars_per_token
             + ascii_chars / self.ascii_chars_per_token

@@ -140,6 +140,7 @@ class ToolResult:
     chars: int
     tokens: int
     is_error: bool
+    content_hash: str = ""
 
 
 @dataclass
@@ -259,12 +260,17 @@ class SessionRecord:
         return {key: (values[0], values[1], values[2], values[3]) for key, values in out.items()}
 
     def duplicate_calls(self) -> list[tuple[str, int, int]]:
-        """返回重复调用：``(args_key, 次数, 重复结果 tokens)``。"""
-        groups: dict[str, list[ToolCall]] = {}
+        """返回重复调用：``(args_key, 次数, 重复结果 tokens)``。
+
+        同一个工具同参数但结果不同（例如轮询）不算重复——那通常是必要调用。
+        """
+        groups: dict[tuple[str, str], list[ToolCall]] = {}
         for call in self.tool_calls:
-            groups.setdefault(call.args_key, []).append(call)
+            result = self.tool_results.get(call.call_id)
+            fingerprint = result.content_hash if result is not None else ""
+            groups.setdefault((call.args_key, fingerprint), []).append(call)
         out: list[tuple[str, int, int]] = []
-        for key, calls in groups.items():
+        for (key, _fingerprint), calls in groups.items():
             if len(calls) <= 1:
                 continue
             extra_tokens = sum(
@@ -485,9 +491,13 @@ def load_session(path: str | Path, *, profile: TokenProfile | None = None) -> Se
             # 真实 DSH 每一步都会写一条 system/message，取最大而不是累加
             record.system_chars = max(record.system_chars, _content_chars(message.get("content")))
             raw_text = _content_text(message.get("content"))
-            record.system_tokens_est = max(
-                record.system_tokens_est, estimate_text_tokens(raw_text, record.profile)
-            )
+            chars = _content_chars(message.get("content"))
+            if chars > record.system_chars:
+                # 只在 system 变长时重算，避免每步对整段中文做一次分桶扫描
+                record.system_tokens_est = max(
+                    record.system_tokens_est, estimate_text_tokens(raw_text, record.profile)
+                )
+            record.system_chars = max(record.system_chars, chars)
             raw_hash = _fingerprint(raw_text)
             stable_hash = _fingerprint(_normalize_volatile(raw_text))
             if record._last_system_raw_hash and raw_hash != record._last_system_raw_hash:
@@ -537,12 +547,15 @@ def load_session(path: str | Path, *, profile: TokenProfile | None = None) -> Se
             call_id = str(message.get("toolCallId") or data.get("toolCallId") or "")
             content = message.get("content")
             chars, tokens = _text_and_tokens(content, profile)
+            text = _content_text(content)
+            content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16] if text else ""
             is_error = bool(data.get("error")) or bool(message.get("isError"))
             record.tool_results[call_id] = ToolResult(
                 call_id=call_id,
                 chars=chars,
                 tokens=tokens,
                 is_error=is_error,
+                content_hash=content_hash,
             )
             if is_error:
                 record.error_results += 1

@@ -82,6 +82,9 @@ agh-lite audit --days 7 --limit 30 --out runs/audit.md
 # 机器可读
 agh-lite audit --format json
 
+# 解析结果默认缓存在 $DSH_HOME/agh-lite-session-cache，第二次扫描 1 秒内
+agh-lite audit --no-parse-cache   # 不想写缓存时关掉
+
 # 自包含 HTML，方便发给别人或存档
 agh-lite audit --format html --out runs/audit.html
 
@@ -270,7 +273,7 @@ agh-lite proxy --stats
 agh-lite proxy --stats --json
 ```
 
-输出裁剪字符数、缓存省下的 tokens、按价格表折合的费用。
+输出裁剪字符数、缓存省下的 tokens、按价格表折合的费用。账本超过 5MB 会自动切成 `.1` 备份，不会无限长。
 
 不想走代理时，库模式仍然可用：`cache` / `pack` / `budget` 接进自己的调用脚本，命中缓存不重复付费、超预算直接拒绝。
 
@@ -295,6 +298,7 @@ agh-lite proxy --stats --json
 - **缓存只认同一个请求**。输入逐字节规范化后一致才命中，不做语义匹配；有副作用的工具链不该缓存。
 - **哈希链只防「改一条看不出来」**，防不了有写权限的人重写整条链。
 - **预算只维护一个窗口**，日/月边界由调用方重置；不承诺分布式 exactly-once。
+- **审计只读会话，但会写解析缓存**。缓存在 `$DSH_HOME/agh-lite-session-cache`，按文件 mtime/大小失效；`--no-parse-cache` 可关闭。
 - **审计报告默认不公开**。本机跑出来的报告含真实会话统计，留在本地；仓库只放聚合数字。
 
 ## 开发

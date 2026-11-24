@@ -10,12 +10,22 @@ import pytest
 
 from agh_lite.proxy import (
     ProxyConfig,
+    _rotate_ledger,
     _target_path,
     build_server,
     load_ledger,
     summarize_ledger,
     trim_messages,
 )
+
+
+def test_rotate_ledger(tmp_path) -> None:
+    path = tmp_path / "ledger.jsonl"
+    path.write_text("x" * 100, encoding="utf-8")
+    _rotate_ledger(path, 50)
+    assert not path.exists()
+    assert (tmp_path / "ledger.jsonl.1").exists()
+    _rotate_ledger(path, 50)  # 文件不存在时不应报错
 
 
 def test_target_path_does_not_duplicate_prefix() -> None:

@@ -46,6 +46,7 @@ def _cmd_audit(args: argparse.Namespace) -> int:
             workspace=args.workspace,
             pricing=args.pricing,
             usage=False if args.no_usage else args.usage,
+            cache=not args.no_parse_cache,
         )
     except (FileNotFoundError, SessionReadError, ValueError, json.JSONDecodeError) as exc:
         print(f"审计失败：{exc}", file=sys.stderr)
@@ -301,6 +302,7 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--pricing", help="自定义价格表 JSON（覆盖内置价格）")
     audit.add_argument("--usage", help="DSH 用量账本路径（默认自动找 $DSH_HOME/.dshw-usage.json）")
     audit.add_argument("--no-usage", action="store_true", help="跳过真实账单对账")
+    audit.add_argument("--no-parse-cache", action="store_true", help="不写会话解析缓存")
     audit.add_argument("--out", help="写入文件而不是打印")
     audit.set_defaults(func=_cmd_audit)
 

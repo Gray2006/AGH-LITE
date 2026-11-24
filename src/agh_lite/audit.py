@@ -10,9 +10,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import html
+import pickle
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -1170,6 +1173,46 @@ def audit_records(
     )
 
 
+PARSE_CACHE_VERSION = 1
+
+
+def _parse_cache_file(path: Path, cache_dir: Path) -> Path | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    key = hashlib.sha256(
+        f"{path}|{stat.st_mtime_ns}|{stat.st_size}|v{PARSE_CACHE_VERSION}".encode()
+    ).hexdigest()
+    return cache_dir / f"{key}.pkl"
+
+
+def _read_parsed(path: Path, cache_dir: Path) -> SessionRecord | None:
+    target = _parse_cache_file(path, cache_dir)
+    if target is None or not target.is_file():
+        return None
+    try:
+        with target.open("rb") as handle:
+            record = pickle.load(handle)
+        return record if isinstance(record, SessionRecord) else None
+    except (OSError, pickle.PickleError, EOFError, AttributeError, ValueError):
+        return None
+
+
+def _write_parsed(path: Path, record: SessionRecord, cache_dir: Path) -> None:
+    target = _parse_cache_file(path, cache_dir)
+    if target is None:
+        return
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        temp = target.with_suffix(".tmp")
+        with temp.open("wb") as handle:
+            pickle.dump(record, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        temp.replace(target)
+    except (OSError, pickle.PickleError):
+        return
+
+
 def audit_home(
     home: str | Path | None = None,
     *,
@@ -1179,6 +1222,8 @@ def audit_home(
     workspace: str | None = None,
     pricing: str | Path | None = None,
     usage: str | Path | bool | None = None,
+    cache: bool = True,
+    workers: int | None = None,
 ) -> AuditReport:
     resolved = resolve_dsh_home(home)
     prices = load_prices(pricing) if pricing else dict(DEFAULT_PRICES)
@@ -1195,18 +1240,37 @@ def audit_home(
         max_bytes=max_bytes,
         limit=None if cutoff_ms is not None else limit,
     )
-    records: list[SessionRecord] = []
+    paths = [path for path in files if not workspace or workspace.lower() in str(path).lower()]
+    cache_dir = resolved / "agh-lite-session-cache" if cache else None
     skipped: list[str] = []
-    for path in files:
-        if workspace and workspace.lower() not in str(path).lower():
-            continue
-        try:
-            record = load_session(path)
-        except (SessionReadError, OSError) as exc:
-            skipped.append(f"{path}: {exc}")
-            continue
+    loaded: list[SessionRecord] = []
+
+    def _load(path: Path) -> SessionRecord | None:
+        record = _read_parsed(path, cache_dir) if cache_dir is not None else None
+        if record is None:
+            try:
+                record = load_session(path)
+            except (SessionReadError, OSError) as exc:
+                skipped.append(f"{path}: {exc}")
+                return None
+            if cache_dir is not None:
+                _write_parsed(path, record, cache_dir)
+        return record
+
+    max_workers = workers or 1
+    if max_workers > 1 and len(paths) > 1:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            loaded = [record for record in pool.map(_load, paths) if record is not None]
+    else:
+        loaded = [record for record in map(_load, paths) if record is not None]
+
+    records: list[SessionRecord] = []
+    for record in loaded:
         if cutoff_ms is not None:
-            ended = record.ended_at or int(path.stat().st_mtime * 1000)
+            try:
+                ended = record.ended_at or int(record.path.stat().st_mtime * 1000)
+            except OSError:
+                ended = record.ended_at
             if ended < cutoff_ms:
                 continue
         records.append(record)

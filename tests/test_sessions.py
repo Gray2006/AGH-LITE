@@ -179,6 +179,21 @@ def test_header_and_system_changes_are_counted(write_session, events) -> None:
     assert record.system_changes == 1
 
 
+def test_duplicate_calls_need_same_result(write_session, events) -> None:
+    # 同一个 read 调两次，但结果不同：不算重复浪费
+    changed = []
+    for event in events:
+        if event["type"] == "tool/result" and event["data"]["message"]["toolCallId"] == "c2":
+            event = {
+                "type": "tool/result",
+                "time": event["time"],
+                "data": {"message": {"toolCallId": "c2", "content": [{"type": "text", "text": "不同的结果"}]}},
+            }
+        changed.append(event)
+    record = load_session(write_session(changed))
+    assert record.duplicate_calls() == []
+
+
 def test_system_tokens_use_cjk_profile(write_session) -> None:
     record = load_session(write_session())
     # 合成会话的 system 是中文，按 CJK 口径应明显高于 chars/3.6

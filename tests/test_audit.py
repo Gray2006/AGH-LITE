@@ -169,6 +169,30 @@ def test_days_uses_session_event_time(tmp_path, write_session) -> None:
     assert report.sessions[0].session_id == "sess-1"
 
 
+def test_second_audit_uses_parse_cache(tmp_path, write_session, monkeypatch) -> None:
+    write_session()
+    first = audit_home(tmp_path)
+    assert first.totals.sessions == 1
+
+    import agh_lite.audit as audit_module
+
+    def boom(*args, **kwargs):
+        raise AssertionError("第二次扫描应该走解析缓存")
+
+    monkeypatch.setattr(audit_module, "load_session", boom)
+    second = audit_home(tmp_path)
+    assert second.totals.sessions == 1
+
+
+def test_parallel_audit_matches_serial(tmp_path, write_session) -> None:
+    write_session(session_id="a")
+    write_session(session_id="b")
+    serial = audit_home(tmp_path, workers=1)
+    parallel = audit_home(tmp_path, workers=4)
+    assert serial.totals.total_tokens == parallel.totals.total_tokens
+    assert serial.totals.sessions == parallel.totals.sessions
+
+
 def test_usage_reconciliation(tmp_path, write_session) -> None:
     write_session()
     now_ms = int(__import__("time").time() * 1000)

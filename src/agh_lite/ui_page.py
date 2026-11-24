@@ -206,7 +206,9 @@ $('report').onclick = async () => {
 
 $('startProxy').onclick = async () => {
   $('proxyState').innerHTML = '<span class="spinner"></span> 启动中…';
-  const r = await api('/api/proxy/start', {upstream: $('upstream').value});
+  const upstream = $('upstream').value.trim();
+  try { localStorage.setItem('agh-lite-upstream', upstream); } catch (e) {}
+  const r = await api('/api/proxy/start', {upstream: upstream});
   if (r.error) { $('proxyState').textContent = r.error; return; }
   refresh();
 };
@@ -231,5 +233,9 @@ $('doctor').onclick = async () => {
 };
 
 refresh();
+try {
+  const saved = localStorage.getItem('agh-lite-upstream');
+  if (saved) $('upstream').value = saved;
+} catch (e) {}
 setInterval(() => { if (proxyRunning) refresh(); }, 4000);
 </script></div></body></html>"""
