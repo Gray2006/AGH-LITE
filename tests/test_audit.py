@@ -194,6 +194,9 @@ def test_usage_reconciliation(tmp_path, write_session) -> None:
     assert "按天用量" in page
     assert "按天费用" in page
     assert "<polyline" in page
+    assert 'class="hero"' in page
+    assert "prefers-color-scheme" in page
+    assert "@media print" in page
 
 
 def test_usage_can_be_disabled(tmp_path, write_session) -> None:

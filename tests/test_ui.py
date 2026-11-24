@@ -41,6 +41,9 @@ def test_page_is_served(ui) -> None:
     page = _get(base + "/")
     assert "agh-lite" in page
     assert "扫描我的会话" in page
+    assert "prefers-color-scheme" in page
+    assert "spinner" in page
+    assert "0.15.0" in page or "0.16.0" in page
 
 
 def test_status_and_audit(ui) -> None:
@@ -48,6 +51,7 @@ def test_status_and_audit(ui) -> None:
     status = json.loads(_get(base + "/api/status"))
     assert status["proxy"]["running"] is False
     assert str(state.home) in status["home"]
+    assert "last_audit_at" in status
 
     result = _post(base + "/api/audit", {"days": 0})
     assert result["sessions"] == 1

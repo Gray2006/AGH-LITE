@@ -615,19 +615,48 @@ class AuditReport:
             )
 
         style = """
+:root{--bg:#f6f8fa;--card:#fff;--text:#1f2328;--muted:#57606a;--border:#d0d7de;
+--soft:#eaeef2;--accent:#1f6feb;--high:#cf222e;--medium:#bf8700;--low:#1a7f37}
+@media (prefers-color-scheme: dark){:root{--bg:#0d1117;--card:#161b22;--text:#e6edf3;
+--muted:#8b949e;--border:#30363d;--soft:#21262d;--accent:#4493f8;
+--high:#f85149;--medium:#d29922;--low:#3fb950}}
+*{box-sizing:border-box}
 body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;max-width:960px;
-margin:2rem auto;padding:0 1rem;color:#1f2328;line-height:1.6}
-h1{font-size:1.6rem}h2{margin-top:2rem;border-bottom:1px solid #d0d7de;padding-bottom:.3rem}
-table{border-collapse:collapse;width:100%;margin:.8rem 0}
-th,td{border:1px solid #d0d7de;padding:.4rem .6rem;text-align:left;font-size:.92rem}
-th{background:#f6f8fa}
-.finding{border:1px solid #d0d7de;border-left:4px solid #8c959f;border-radius:6px;padding:.8rem 1rem;margin:.8rem 0}
-.finding.high{border-left-color:#cf222e}.finding.medium{border-left-color:#bf8700}.finding.low{border-left-color:#1a7f37}
+margin:2rem auto;padding:0 1.2rem;color:var(--text);background:var(--bg);line-height:1.6;
+font-variant-numeric:tabular-nums}
+h1{font-size:1.6rem;letter-spacing:.2px}
+h2{margin-top:2rem;border-bottom:1px solid var(--border);padding-bottom:.35rem;font-size:1.15rem}
+h3{margin-top:1.2rem;font-size:.98rem;color:var(--muted)}
+code{background:var(--soft);padding:.1rem .35rem;border-radius:5px}
+.hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.7rem;margin:1.2rem 0}
+.hero div{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:.8rem .9rem}
+.hero span{display:block;color:var(--muted);font-size:.8rem}
+.hero b{font-size:1.35rem;font-weight:650}
+table{border-collapse:collapse;width:100%;margin:.8rem 0;background:var(--card)}
+th,td{border:1px solid var(--border);padding:.42rem .6rem;text-align:left;font-size:.9rem}
+th{background:var(--soft);font-weight:600}
+tbody tr:nth-child(even){background:color-mix(in srgb,var(--soft) 55%,transparent)}
+.finding{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--muted);
+border-radius:8px;padding:.85rem 1rem;margin:.8rem 0}
+.finding.high{border-left-color:var(--high)}.finding.medium{border-left-color:var(--medium)}
+.finding.low{border-left-color:var(--low)}
 .badge{display:inline-block;font-size:.75rem;padding:.1rem .5rem;border-radius:999px;
-background:#eaeef2;margin-bottom:.3rem}
-.rec{color:#57606a}ul{margin:.4rem 0}
-footer{margin-top:2rem;color:#57606a;font-size:.85rem}
+background:var(--soft);color:var(--muted);margin-bottom:.3rem}
+.rec{color:var(--muted)}ul{margin:.4rem 0}
+footer{margin-top:2.5rem;color:var(--muted);font-size:.85rem;border-top:1px solid var(--border);padding-top:1rem}
+@media print{body{max-width:none;margin:0;background:#fff;color:#000}
+.hero div,.finding,table{box-shadow:none}th{background:#eee}
+a{color:var(--accent)}}
 """
+        hero = (
+            '<div class="hero">'
+            f'<div><span>总 tokens</span><b>{format_tokens(totals.total_tokens)}</b></div>'
+            f'<div><span>会话</span><b>{totals.sessions}</b></div>'
+            f'<div><span>估算费用</span><b>'
+            f'{format_usd(totals.cost_usd) if totals.has_cost else "未配置"}</b></div>'
+            f'<div><span>估算可省</span><b>{format_tokens(self.potential_savings)}</b></div>'
+            "</div>"
+        )
         meta = (
             f"<p>生成时间 {esc(generated)} · 数据目录 <code>{esc(str(self.home))}</code> · "
             f"{'最近 ' + str(self.days) + ' 天' if self.days else '全部可用会话'}</p>"
@@ -636,7 +665,7 @@ footer{margin-top:2rem;color:#57606a;font-size:.85rem}
             "<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>DSH Token 审计报告</title><style>{style}</style></head><body>"
-            f"<h1>DSH Token 审计报告</h1>{meta}{''.join(rows)}"
+            f"<h1>DSH Token 审计报告</h1>{meta}{hero}{''.join(rows)}"
             "<footer>估算口径见 README；本报告只读生成，不含会话正文。</footer>"
             "</body></html>"
         )

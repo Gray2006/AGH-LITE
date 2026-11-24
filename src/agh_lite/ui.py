@@ -7,150 +7,28 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import webbrowser
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .audit import AuditReport, audit_home
+from .doctor import format_checks, run_checks
 from .pricing import format_usd
 from .proxy import ProxyConfig, build_server
 from .sessions import resolve_dsh_home
 from .tokens import format_tokens
+from .ui_page import PAGE
 
-PAGE = """<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>agh-lite 面板</title>
-<style>
-body{font-family:system-ui,"Segoe UI",sans-serif;max-width:820px;margin:2rem auto;padding:0 1rem;
-color:#1f2328;line-height:1.6;background:#f6f8fa}
-h1{font-size:1.5rem;margin-bottom:.2rem}h2{font-size:1.05rem;margin:0 0 .6rem}
-.card{background:#fff;border:1px solid #d0d7de;border-radius:10px;padding:1rem 1.2rem;margin:1rem 0}
-button{font-size:.95rem;padding:.45rem .9rem;border-radius:6px;border:1px solid #1f6feb;
-background:#1f6feb;color:#fff;cursor:pointer}button.ghost{background:#fff;color:#1f6feb}
-button:disabled{opacity:.5;cursor:default}input{font-size:.95rem;padding:.4rem .5rem;
-border:1px solid #d0d7de;border-radius:6px;width:100%;box-sizing:border-box}
-.row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
-.muted{color:#57606a;font-size:.9rem}.ok{color:#1a7f37}.bad{color:#cf222e}
-pre{background:#f6f8fa;padding:.6rem;border-radius:6px;overflow:auto;font-size:.85rem}
-.big{font-size:1.3rem;font-weight:600}
-</style></head><body>
-<h1>agh-lite</h1>
-<p class="muted">DSH 个人版 token 工具 · 数据目录 <code id="home">…</code></p>
-
-<div class="card">
-  <h2>1. 看看钱花在哪</h2>
-  <div class="row"><button id="scan">扫描我的会话</button><span id="scanState" class="muted"></span></div>
-  <div id="scanResult"></div>
-</div>
-
-<div class="card">
-  <h2>2. 生成一份报告</h2>
-  <div class="row"><button id="report">生成 HTML 报告</button><span id="reportState" class="muted"></span></div>
-  <div id="reportResult"></div>
-</div>
-
-<div class="card">
-  <h2>3. 自动省 token（本地代理）</h2>
-  <p class="muted">把 DSH 的模型 provider 指向这个地址，代理会自动裁掉旧的超长工具结果、缓存重复请求。</p>
-  <label class="muted">上游地址</label>
-  <input id="upstream" value="https://api.deepseek.com">
-  <div class="row" style="margin-top:.6rem">
-    <button id="startProxy">启动代理</button>
-    <button id="stopProxy" class="ghost">停止</button>
-    <button id="copyProxy" class="ghost">复制地址</button>
-    <span id="proxyState" class="muted"></span>
-  </div>
-  <div id="proxyInfo"></div>
-</div>
-
-<details class="card"><summary>怎么把 DSH 接到代理上</summary>
-<ol class="muted">
-<li>启动代理后，地址是 <code>http://127.0.0.1:8787/v1</code>。</li>
-<li>在 DSH 里加一个 OpenAI 兼容 provider，baseUrl 填这个地址，key 随便填。</li>
-<li>不想用了就删掉这个 provider，或点上面的停止。</li>
-</ol></details>
-
-<script>
-const $ = (id) => document.getElementById(id);
-async function api(path, body) {
-  const res = await fetch(path, {method: body === undefined ? 'GET' : 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: body === undefined ? undefined : JSON.stringify(body)});
-  return res.json();
-}
-let proxyUrl = 'http://127.0.0.1:8787/v1';
-async function refresh() {
-  const s = await api('/api/status');
-  $('home').textContent = s.home;
-  proxyUrl = 'http://127.0.0.1:' + s.proxy.port + '/v1';
-  if (s.proxy.running) {
-    $('proxyState').textContent = '运行中 ' + s.proxy.url;
-    $('proxyState').className = 'ok';
-    const p = s.proxy.stats;
-    $('proxyInfo').innerHTML = '<p class="muted">请求 ' + p.requests + ' · 缓存命中 ' +
-      p.cache_hits + ' · 裁剪 ' + p.trimmed_requests + ' 次</p>';
-  } else {
-    $('proxyState').textContent = '未启动'; $('proxyState').className = 'muted';
-    $('proxyInfo').textContent = '';
-  }
-}
-$('scan').onclick = async () => {
-  $('scan').disabled = true; $('scanState').textContent = '扫描中…';
-  let seconds = 0;
-  const timer = setInterval(() => {
-    seconds += 1; $('scanState').textContent = '扫描中，已用 ' + seconds + ' 秒…';
-  }, 1000);
-  try {
-    const r = await api('/api/audit', {days: 30});
-    $('scanState').textContent = '';
-    if (r.error) { $('scanResult').textContent = r.error; return; }
-    let html = '<p><span class="big">' + r.sessions + '</span> 个会话 · ' +
-      r.tokens + ' · 估算费用 ' + r.cost + '</p>';
-    html += '<p>估算可省 <b>' + r.savings + '</b>（' + r.savings_usd + '）</p>';
-    if (r.findings.length) {
-      html += '<ul>' + r.findings.map(f => '<li>[' + f.severity + '] ' + f.title +
-        '：约 ' + f.estimated + '</li>').join('') + '</ul>';
-    }
-    if (r.workspaces && r.workspaces.length) {
-      html += '<p class="muted">最烧 token 的项目：</p><ul>' + r.workspaces.map(w =>
-        '<li>' + w.name + '：' + w.sessions + ' 个会话 · ' + w.tokens + '</li>').join('') + '</ul>';
-    }
-    $('scanResult').innerHTML = html;
-  } catch (e) { $('scanState').textContent = '失败：' + e; }
-  clearInterval(timer);
-  $('scan').disabled = false;
-};
-$('report').onclick = async () => {
-  $('report').disabled = true; $('reportState').textContent = '生成中…';
-  const r = await api('/api/report', {});
-  $('report').disabled = false;
-  if (r.error) { $('reportState').textContent = r.error; return; }
-  $('reportState').textContent = '已生成';
-  $('reportResult').innerHTML = '<a href="/report" target="_blank">打开报告</a>';
-  window.open('/report', '_blank');
-};
-$('startProxy').onclick = async () => {
-  $('proxyState').textContent = '启动中…';
-  const r = await api('/api/proxy/start', {upstream: $('upstream').value});
-  if (r.error) { $('proxyState').textContent = r.error; return; }
-  refresh();
-};
-$('stopProxy').onclick = async () => { await api('/api/proxy/stop', {}); refresh(); };
-$('copyProxy').onclick = async () => {
-  const url = proxyUrl;
-  try {
-    await navigator.clipboard.writeText(url);
-    $('copyProxy').textContent = '已复制';
-  } catch (e) {
-    window.prompt('复制这个地址', url);
-  }
-  setTimeout(() => { $('copyProxy').textContent = '复制地址'; }, 1500);
-};
-refresh();
-</script></body></html>"""
+FAVICON = (
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
+    "<rect width='32' height='32' rx='8' fill='#1f6feb'/>"
+    "<text x='16' y='23' font-size='19' text-anchor='middle' fill='white' "
+    "font-family='sans-serif'>a</text></svg>"
+)
 
 
 @dataclass
@@ -161,6 +39,7 @@ class UIState:
     proxy: Any = None
     proxy_thread: threading.Thread | None = None
     last_audit: dict[str, Any] | None = None
+    last_audit_at: int | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -173,9 +52,20 @@ class _UIHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path in ("/", "/index.html"):
-            self._send_html(200, PAGE)
+            self._send_html(200, PAGE.replace("{{version}}", __version__))
+        elif self.path == "/favicon.svg":
+            self._send_svg(FAVICON)
         elif self.path == "/api/status":
             self._send_json(200, self._status())
+        elif self.path == "/api/doctor":
+            checks = run_checks(self.server.state.home, proxy_port=self.server.state.proxy_port)
+            self._send_json(
+                200,
+                {
+                    "ok": all(check.status != "fail" for check in checks),
+                    "lines": format_checks(checks).splitlines(),
+                },
+            )
         elif self.path == "/report":
             path = self.server.state.report_path
             if path.is_file():
@@ -220,6 +110,14 @@ class _UIHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _send_svg(self, text: str) -> None:
+        data = text.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "image/svg+xml")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def _send_json(self, status: int, payload: Any) -> None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -241,6 +139,7 @@ class _UIHandler(BaseHTTPRequestHandler):
                 "stats": stats,
             },
             "audit": state.last_audit,
+            "last_audit_at": state.last_audit_at,
         }
 
     def _build_report(self, *, days: int | None) -> AuditReport:
@@ -279,6 +178,7 @@ class _UIHandler(BaseHTTPRequestHandler):
             ],
         }
         self.server.state.last_audit = summary
+        self.server.state.last_audit_at = int(time.time() * 1000)
         return summary
 
     def _start_proxy(self, upstream: str) -> dict[str, Any]:
