@@ -84,6 +84,7 @@ What the report contains:
 | Top findings | evidence, recommendation, estimated tokens / money saved per issue |
 | By model | token share and estimated cost per model |
 | Reconciliation | actual spend, estimated spend, delta, and real cost by day/model |
+| Daily usage | tokens bar chart in the HTML report (last 14 days) |
 | By workspace | which project directory burns the most, sessions and estimated cost |
 | Session ranking | most expensive sessions with cache hit and duplicates |
 
@@ -224,6 +225,9 @@ agh-lite proxy --upstream https://api.deepseek.com --no-trim
 
 # tune trimming: keep 2000 chars per old tool result, leave the 6 newest alone
 agh-lite proxy --upstream https://api.deepseek.com --max-tool-chars 2000 --keep-recent 6
+
+# account usage for streaming requests too (adds include_usage upstream)
+agh-lite proxy --upstream https://api.deepseek.com --stream-usage
 ```
 
 The proxy does two things, each can be turned off:

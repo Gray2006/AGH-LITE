@@ -34,6 +34,8 @@ def test_load_and_summarize(tmp_path) -> None:
     assert summary.total_cost == pytest.approx(1.5)
     assert summary.total_tokens == 3500
     assert summary.by_day["2026-11-23"] == pytest.approx(0.75)
+    assert summary.tokens_by_day["2026-11-23"] == 1500
+    assert summary.tokens_by_day["2026-11-24"] == 2000
     assert summary.by_model["m2"]["tokens"] == 2000
     assert summary.avg_cost_per_million == pytest.approx(1.5 / 3500 * 1_000_000)
 

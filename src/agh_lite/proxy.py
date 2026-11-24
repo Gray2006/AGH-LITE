@@ -51,6 +51,7 @@ class ProxyConfig:
     trim: bool = True
     max_tool_chars: int = 4_000
     keep_recent: int = 8
+    stream_usage: bool = False
     cache: bool = True
     cache_path: str | Path | None = None
     cache_ttl_seconds: int = 7 * 24 * 3600
@@ -279,6 +280,20 @@ def _parse_json(data: bytes) -> Any:
         return None
 
 
+def _with_stream_usage(body: bytes) -> bytes:
+    """流式响应默认不带 usage；给上游加一个标准参数，末尾就会多一个 usage 分片。"""
+    payload = _parse_json(body)
+    if not isinstance(payload, dict) or not payload.get("stream"):
+        return body
+    options = payload.get("stream_options")
+    options = dict(options) if isinstance(options, dict) else {}
+    if options.get("include_usage") is True:
+        return body
+    options["include_usage"] = True
+    payload["stream_options"] = options
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
 class _ProxyServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -338,6 +353,10 @@ class _Handler(BaseHTTPRequestHandler):
         payload = _parse_json(body)
         model = str(payload.get("model") or "") if isinstance(payload, dict) else ""
         stream = bool(isinstance(payload, dict) and payload.get("stream"))
+        if stream and config.stream_usage:
+            body = _with_stream_usage(body)
+            payload = _parse_json(body)
+            stream = bool(isinstance(payload, dict) and payload.get("stream"))
         key = hashlib.sha256(body).hexdigest()
         cache = self.server.cache
         if config.cache and cache is not None and not stream:
@@ -433,6 +452,8 @@ class _Handler(BaseHTTPRequestHandler):
                 if key.lower() not in HOP_BY_HOP and key.lower() != "content-length":
                     self.send_header(key, value)
             self.end_headers()
+            usage = (0, 0)
+            parse_buffer = ""
             try:
                 while True:
                     chunk = response.read(8192)
@@ -440,11 +461,41 @@ class _Handler(BaseHTTPRequestHandler):
                         break
                     self.wfile.write(chunk)
                     self.wfile.flush()
+                    if streaming:
+                        parse_buffer += chunk.decode("utf-8", "ignore")
+                        while "\n\n" in parse_buffer:
+                            raw, parse_buffer = parse_buffer.split("\n\n", 1)
+                            for line in raw.replace("\r\n", "\n").splitlines():
+                                if not line.startswith("data:"):
+                                    continue
+                                data = line[5:].strip()
+                                if not data or data == "[DONE]":
+                                    continue
+                                try:
+                                    event = json.loads(data)
+                                except json.JSONDecodeError:
+                                    continue
+                                found = _usage_tokens(event)
+                                if found != (0, 0):
+                                    usage = found
             except (BrokenPipeError, ConnectionResetError):
                 pass
             finally:
                 response.close()
                 connection.close()
+            if streaming:
+                self.server.record_ledger(
+                    {
+                        "ts": int(time.time() * 1000),
+                        "model": model,
+                        "stream": True,
+                        "cache_hit": False,
+                        "trimmed_chars": trim.chars_removed,
+                        "trimmed_tokens": round(trim.chars_removed / 3.6),
+                        "prompt_tokens": usage[0],
+                        "completion_tokens": usage[1],
+                    }
+                )
             return
 
         data = response.read()

@@ -498,6 +498,32 @@ class AuditReport:
             )
         )
 
+        if self.usage is not None and self.usage.tokens_by_day:
+            days = sorted(self.usage.tokens_by_day.items())[-14:]
+            max_value = max(value for _, value in days) or 1
+            width, height, pad = 720, 200, 32
+            bar_width = (width - 2 * pad) / len(days)
+            bars: list[str] = []
+            for index, (day, value) in enumerate(days):
+                bar_height = (height - 2 * pad) * value / max_value
+                x = pad + index * bar_width
+                y = height - pad - bar_height
+                bars.append(
+                    f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_width - 4:.1f}" '
+                    f'height="{max(bar_height, 1):.1f}" fill="#1f6feb">'
+                    f"<title>{esc(day)}: {value:,} tokens</title></rect>"
+                )
+                if index % 3 == 0 or index == len(days) - 1:
+                    bars.append(
+                        f'<text x="{x + bar_width / 2:.1f}" y="{height - pad + 14}" '
+                        f'font-size="9" text-anchor="middle" fill="#57606a">{esc(day[5:])}</text>'
+                    )
+            rows.append(
+                "<h2>按天用量</h2>"
+                f'<svg viewBox="0 0 {width} {height}" width="100%" role="img" '
+                f'aria-label="按天 tokens 用量">{"".join(bars)}</svg>'
+            )
+
         if self.findings:
             cards = []
             for finding in self.findings[:top]:

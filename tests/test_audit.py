@@ -189,6 +189,9 @@ def test_usage_reconciliation(tmp_path, write_session) -> None:
     assert report.calibration_factor is not None
     assert report.calibration_factor > 1
     assert "按真实账单校准" in text
+    page = report.render_html()
+    assert "<svg" in page
+    assert "按天用量" in page
 
 
 def test_usage_can_be_disabled(tmp_path, write_session) -> None:

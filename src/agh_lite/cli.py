@@ -243,6 +243,7 @@ def _cmd_proxy(args: argparse.Namespace) -> int:
             cache=not args.no_cache,
             cache_path=args.cache_path,
             ledger_path=args.ledger,
+            stream_usage=args.stream_usage,
         )
     except ValueError as exc:
         print(f"参数不对：{exc}", file=sys.stderr)
@@ -312,6 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
     proxy.add_argument("--ledger", help="节省账本（默认 ~/.dsh/agh-lite-proxy.jsonl）")
     proxy.add_argument("--no-trim", action="store_true", help="只缓存，不裁剪")
     proxy.add_argument("--no-cache", action="store_true", help="只裁剪，不缓存")
+    proxy.add_argument("--stream-usage", action="store_true", help="给流式请求加上 include_usage，记账更准")
     proxy.add_argument("--stats", action="store_true", help="不启动服务，只汇总账本里的节省量")
     proxy.add_argument("--json", action="store_true", help="配合 --stats 输出 JSON")
     proxy.set_defaults(func=_cmd_proxy)

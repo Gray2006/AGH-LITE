@@ -57,9 +57,15 @@ class _Upstream(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
-            for piece in (b"data: one\n\n", b"data: [DONE]\n\n"):
+            for piece in (b"data: one\n\n",):
                 self.wfile.write(piece)
                 self.wfile.flush()
+            if (body.get("stream_options") or {}).get("include_usage"):
+                usage = {"usage": {"prompt_tokens": 50, "completion_tokens": 5}}
+                self.wfile.write(f"data: {json.dumps(usage)}\n\n".encode())
+                self.wfile.flush()
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
             return
         data = json.dumps(
             {
@@ -194,3 +200,37 @@ def test_proxy_streams_and_does_not_cache(proxy) -> None:
             text = response.read().decode()
         assert "data: one" in text and "[DONE]" in text
     assert len(_Upstream.calls) == 2
+
+
+def test_stream_usage_is_recorded(tmp_path, upstream) -> None:
+    config = ProxyConfig(
+        upstream=upstream,
+        port=0,
+        cache=False,
+        stream_usage=True,
+        ledger_path=tmp_path / "stream-ledger.jsonl",
+    )
+    server = build_server(config)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        request = urllib.request.Request(
+            base + "/v1/chat/completions",
+            data=json.dumps(
+                {"model": "m", "stream": True, "messages": [{"role": "user", "content": "hi"}]}
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            assert "data: one" in response.read().decode()
+        assert _Upstream.calls[-1]["stream_options"]["include_usage"] is True
+        records = load_ledger(tmp_path / "stream-ledger.jsonl")
+        assert records[-1]["stream"] is True
+        assert records[-1]["prompt_tokens"] == 50
+        assert records[-1]["completion_tokens"] == 5
+    finally:
+        server.shutdown()
+        server.server_close()
+        if server.cache is not None:
+            server.cache.close()

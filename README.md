@@ -84,6 +84,7 @@ agh-lite audit --redact --out runs/audit.md
 | 最该先动的几件事 | 每条问题给证据、做法、估算省多少 tokens / 多少钱 |
 | 按模型 | 各模型的 tokens 占比与估算费用 |
 | 与真实账单对账 | 实际花费、估算花费、差额，以及按天/按模型的真实费用 |
+| 按天用量 | HTML 报告里的 tokens 柱子图（最近 14 天） |
 | 按 workspace | 哪个项目目录最烧 token，会话数与估算费用 |
 | 会话排行 | 最贵的会话及其缓存命中、重复量 |
 
@@ -224,6 +225,9 @@ agh-lite proxy --upstream https://api.deepseek.com --no-trim
 
 # 调裁剪力度：单条旧 tool 结果最多留 2000 字，最近 6 条不动
 agh-lite proxy --upstream https://api.deepseek.com --max-tool-chars 2000 --keep-recent 6
+
+# 流式请求也记账（给上游加 include_usage）
+agh-lite proxy --upstream https://api.deepseek.com --stream-usage
 ```
 
 代理做两件事，都可单独关：

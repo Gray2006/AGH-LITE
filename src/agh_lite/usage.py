@@ -40,6 +40,7 @@ class UsageSummary:
     total_cost: float = 0.0
     total_tokens: int = 0
     by_day: dict[str, float] = field(default_factory=dict)
+    tokens_by_day: dict[str, int] = field(default_factory=dict)
     by_model: dict[str, dict[str, float]] = field(default_factory=dict)
     skipped: int = 0
 
@@ -53,6 +54,7 @@ class UsageSummary:
             "total_cost": round(self.total_cost, 6),
             "total_tokens": self.total_tokens,
             "by_day": {day: round(cost, 6) for day, cost in sorted(self.by_day.items())},
+            "tokens_by_day": dict(sorted(self.tokens_by_day.items())),
             "by_model": {
                 model: {
                     "cost": round(row["cost"], 6),
@@ -110,6 +112,7 @@ def summarize(events: list[UsageEvent], *, since_ms: int | None = None) -> Usage
         summary.total_tokens += event.tokens
         if event.day:
             summary.by_day[event.day] = summary.by_day.get(event.day, 0.0) + event.cost
+            summary.tokens_by_day[event.day] = summary.tokens_by_day.get(event.day, 0) + event.tokens
         row = summary.by_model.setdefault(event.model, {"cost": 0.0, "tokens": 0.0, "events": 0.0})
         row["cost"] += event.cost
         row["tokens"] += event.tokens
