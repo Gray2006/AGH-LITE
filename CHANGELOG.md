@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.0 (2026-11-24)
+
+### 新增
+
+- 面板扫描结果增加「最烧 token 的项目」（按 workspace 前 5）。
+- HTML 报告增加「按天费用」折线图，和 tokens 柱状图并列。
+- 启动脚本：`scripts/agh-lite-ui.cmd`（Windows 双击）与 `scripts/agh-lite-ui.sh`。
+
 ## 0.12.0 (2026-11-24)
 
 ### 新增
