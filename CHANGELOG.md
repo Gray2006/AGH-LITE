@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0 (2026-11-24)
+
+### 新增
+
+- 面板代理区加「复制地址」按钮，一键复制 `http://127.0.0.1:8787/v1`。
+- 打包准备：`pyproject.toml` 的 license 改为 SPDX 形式；新增 `publish` workflow（手动触发，Trusted Publishing，无需 token）。
+- README 增加 PyPI 安装与发布说明。
+
 ## 0.13.0 (2026-11-24)
 
 ### 新增
